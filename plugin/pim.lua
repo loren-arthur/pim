@@ -66,6 +66,22 @@ vim.api.nvim_create_user_command("PimBridgeInfo", function()
   print("pim bridge port=" .. tostring(info.port))
 end, { desc = "Print pim Neovim bridge info" })
 
+vim.api.nvim_create_user_command("PimClearHighlights", function()
+  pim().clear_highlights()
+end, { desc = "Clear pim-created Neovim highlights" })
+
+vim.api.nvim_create_user_command("PimNextMessage", function()
+  pim().next_message()
+end, { desc = "Jump to next pim conversation message" })
+
+vim.api.nvim_create_user_command("PimPrevMessage", function()
+  pim().prev_message()
+end, { desc = "Jump to previous pim conversation message" })
+
+vim.api.nvim_create_user_command("PimLatest", function()
+  pim().latest()
+end, { desc = "Jump to latest pim conversation line" })
+
 vim.api.nvim_create_user_command("PimAbort", function()
   pim().abort()
 end, { desc = "Abort the current pi operation" })

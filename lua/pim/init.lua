@@ -92,6 +92,105 @@ local function render_session_state(data)
   end
 end
 
+local function truncate(text, max_len)
+  text = tostring(text or "")
+  max_len = max_len or 220
+  text = text:gsub("\n", "\\n")
+  if #text <= max_len then
+    return text
+  end
+  return text:sub(1, max_len - 1) .. "…"
+end
+
+local function json_compact(value)
+  local ok, encoded = pcall(vim.json.encode, value)
+  if ok then
+    return encoded
+  end
+  return tostring(value)
+end
+
+local function tool_arg_lines(tool_name, args)
+  if type(args) ~= "table" then
+    if args == nil then
+      return {}
+    end
+    return { "  args: " .. truncate(json_compact(args)) }
+  end
+
+  if tool_name == "bash" and args.command then
+    return { "  command: " .. truncate(args.command, 300) }
+  end
+
+  if (tool_name == "read" or tool_name == "write" or tool_name == "edit") and args.path then
+    return { "  path: " .. truncate(args.path) }
+  end
+
+  if tool_name == "nvim_open_file" and args.path then
+    local location = args.path
+    if args.line then
+      location = location .. ":" .. tostring(args.line)
+    end
+    return { "  path: " .. truncate(location) }
+  end
+
+  if tool_name == "nvim_highlight_range" then
+    local target = args.path or "current buffer"
+    if args.startLine then
+      target = target .. ":" .. tostring(args.startLine)
+      if args.endLine and args.endLine ~= args.startLine then
+        target = target .. "-" .. tostring(args.endLine)
+      end
+    end
+    return { "  range: " .. truncate(target) }
+  end
+
+  if tool_name == "nvim_open_terminal" and args.cmd then
+    return { "  command: " .. truncate(args.cmd, 300) }
+  end
+
+  return { "  args: " .. truncate(json_compact(args), 300) }
+end
+
+local function tool_display_lines(prefix, tool_name, args)
+  local lines = { string.format("%s tool: %s", prefix, tool_name or "?") }
+  vim.list_extend(lines, tool_arg_lines(tool_name, args))
+  return lines
+end
+
+local function result_text(result)
+  if type(result) ~= "table" then
+    return result ~= nil and tostring(result) or nil
+  end
+  if type(result.content) == "table" then
+    for _, item in ipairs(result.content) do
+      if type(item) == "table" and item.type == "text" and item.text then
+        return item.text
+      end
+    end
+  end
+  if result.details ~= nil then
+    return json_compact(result.details)
+  end
+  return nil
+end
+
+local function tool_result_lines(event)
+  local text = result_text(event.result)
+  if not text or text == "" then
+    return {}
+  end
+  local label = event.isError and "  error: " or "  result: "
+  return { label .. truncate(text, 300) }
+end
+
+local function append_tool_lines(lines)
+  for _, line in ipairs(lines) do
+    buffer.append_line(line)
+  end
+  transcript.append_markdown("\n" .. table.concat(lines, "\n") .. "\n")
+end
+
 local function handle_event(event)
   transcript.append_event(event)
 
@@ -102,6 +201,7 @@ local function handle_event(event)
 
   if event.type == "agent_start" then
     state.is_streaming = true
+    buffer.start_working("pi working…")
     return
   end
 
@@ -109,6 +209,7 @@ local function handle_event(event)
     state.is_streaming = false
     state.assistant_open_in_transcript = false
     buffer.finish_assistant_message()
+    buffer.stop_working("pi idle")
     return
   end
 
@@ -144,17 +245,20 @@ local function handle_event(event)
   end
 
   if event.type == "tool_execution_start" then
-    local line = string.format("▶ tool: %s", event.toolName or "?")
-    buffer.append_line(line)
-    transcript.append_markdown("\n" .. line .. "\n")
+    local tool_name = event.toolName or "?"
+    buffer.start_working("pi running tool: " .. tool_name)
+    append_tool_lines(tool_display_lines("▶", tool_name, event.args))
     return
   end
 
   if event.type == "tool_execution_end" then
     local status = event.isError and "failed" or "done"
-    local line = string.format("■ tool %s: %s", status, event.toolName or "?")
-    buffer.append_line(line)
-    transcript.append_markdown("\n" .. line .. "\n")
+    local lines = { string.format("■ tool %s: %s", status, event.toolName or "?") }
+    vim.list_extend(lines, tool_result_lines(event))
+    append_tool_lines(lines)
+    if state.is_streaming then
+      buffer.start_working("pi working…")
+    end
     return
   end
 
@@ -183,7 +287,9 @@ end
 function M.setup(opts)
   merge_opts(opts)
   prepare_bridge()
-  buffer.setup(state.opts.pane or {})
+  buffer.setup(vim.tbl_extend("force", state.opts.pane or {}, {
+    highlights = state.opts.highlights or {},
+  }))
   transcript.setup(state.opts.transcript or {})
   rpc.setup({
     pi_cmd = state.opts.pi_cmd,
@@ -217,7 +323,7 @@ function M.abort()
 end
 
 local function send_prompt_with_behavior(message, behavior)
-  buffer.open()
+  buffer.open({ focus = false })
   local label = behavior and ("you [" .. behavior .. "]") or "you"
   buffer.append_block(label, message)
   transcript.append_block(label, message)
@@ -299,6 +405,22 @@ end
 
 function M.bridge_info()
   return bridge.info()
+end
+
+function M.clear_highlights()
+  bridge.clear_highlights()
+end
+
+function M.next_message()
+  buffer.next_message()
+end
+
+function M.prev_message()
+  buffer.prev_message()
+end
+
+function M.latest()
+  buffer.latest()
 end
 
 function M.open_transcript()

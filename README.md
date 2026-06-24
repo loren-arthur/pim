@@ -32,6 +32,10 @@ With lazy.nvim:
     require("pim").setup({
       pi_cmd = { "pi", "--mode", "rpc" },
       pane = { width = 80 },
+      highlights = {
+        PimUserHeader = { fg = "#268bd2", bold = true },
+        PimAssistantHeader = { fg = "#6c71c4", bold = true },
+      },
     })
   end,
 }
@@ -58,6 +62,10 @@ nvim --clean \
 - `:PimTranscript` — open the durable markdown transcript.
 - `:PimTranscriptPath` — print the durable markdown transcript path.
 - `:PimBridgeInfo` — print the local Neovim bridge port.
+- `:PimClearHighlights` — clear highlights created by pim's Neovim bridge.
+- `:PimNextMessage` — jump to the next conversation message.
+- `:PimPrevMessage` — jump to the previous conversation message.
+- `:PimLatest` — jump to the latest conversation line.
 - `:PimAbort` — send RPC abort.
 - `:PimStop` — stop the pi RPC subprocess.
 
@@ -77,10 +85,13 @@ Implemented:
 - Requests and displays Pi RPC session state with `get_state`.
 - Parses strict JSONL from pi stdout.
 - Opens a scratch `pim://conversation` buffer in a right-side vertical pane.
+- Adds buffer-local `<leader>j` / `<leader>k` mappings in the conversation buffer for next/previous message navigation.
+- Shows a right-aligned spinner/status in the conversation buffer while pi is working or running tools.
+- Uses configurable `PimUserHeader`, `PimAssistantHeader`, `PimToolHeader`, `PimErrorHeader`, `PimSystemHeader`, `PimHighlight`, `PimStatusWorking`, and `PimStatusIdle` highlight groups that users can override. Defaults use blue for user headers and purple for assistant headers.
 - Streams assistant `text_delta` updates into the conversation pane.
 - Writes a durable markdown transcript and raw JSONL event log under `stdpath("state") .. "/pim/sessions"`.
 - Rehydrates the conversation pane from the markdown transcript when reattaching to the same session.
-- Displays basic tool start/end events.
+- Displays tool start/end events with concise argument context.
 - Sends plain prompts.
 - Automatically sends new prompts/ranges as steering messages when pi is already processing, avoiding Pi RPC's `Agent is already processing` error.
 - Supports explicit `:PimSteer` and `:PimFollowUp` commands.
@@ -103,6 +114,10 @@ Not implemented yet:
 - Rich UI for choosing steer vs follow-up per message.
 - Tests.
 
+## Plan
+
+See [`docs/plan.md`](docs/plan.md) for roadmap, design principles, and open questions.
+
 ## Repository layout
 
 ```text
@@ -111,4 +126,8 @@ lua/pim/init.lua        public API and event routing
 lua/pim/rpc.lua         pi RPC subprocess + JSONL client
 lua/pim/buffer.lua      conversation buffer/pane rendering
 lua/pim/context.lua     file/range/diagnostic context formatting
+lua/pim/bridge.lua      local Neovim TCP bridge and editor-control methods
+lua/pim/transcript.lua  durable markdown transcript and raw JSONL event log
+pi/nvim-bridge.ts       pi extension registering Neovim bridge tools
+docs/plan.md            roadmap, design principles, and open questions
 ```

@@ -102,7 +102,7 @@ local function highlight_range(params)
   local path = params.path
   local start_line = assert(tonumber(params.startLine or params.line or params.lnum), "startLine is required")
   local end_line = tonumber(params.endLine or start_line) or start_line
-  local hl = params.hlGroup or "Visual"
+  local hl = params.hlGroup or "PimHighlight"
 
   local bufnr
   if path and path ~= "" then
@@ -327,6 +327,10 @@ end
 
 function M.info()
   return { port = state.port, token = state.token }
+end
+
+function M.clear_highlights(params)
+  return clear_highlights(params or {})
 end
 
 return M

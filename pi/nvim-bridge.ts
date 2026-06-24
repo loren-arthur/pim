@@ -105,7 +105,7 @@ export default function pimNvimBridge(pi: ExtensionAPI) {
       path: Type.Optional(Type.String({ description: "File path. Defaults to current buffer if omitted." })),
       startLine: Type.Number({ description: "1-based start line" }),
       endLine: Type.Optional(Type.Number({ description: "1-based end line" })),
-      hlGroup: Type.Optional(Type.String({ description: "Neovim highlight group, defaults to Visual" })),
+      hlGroup: Type.Optional(Type.String({ description: "Neovim highlight group, defaults to PimHighlight" })),
       openMode: Type.Optional(Type.Union([
         Type.Literal("edit"),
         Type.Literal("split"),
