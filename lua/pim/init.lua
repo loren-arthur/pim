@@ -48,7 +48,10 @@ local function prepare_bridge()
     return
   end
 
-  local info = bridge.setup(state.opts.bridge or {})
+  local bridge_opts = vim.tbl_deep_extend("force", {
+    highlights = state.opts.highlights or {},
+  }, state.opts.bridge or {})
+  local info = bridge.setup(bridge_opts)
   if not info then
     return
   end

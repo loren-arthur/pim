@@ -35,6 +35,9 @@ With lazy.nvim:
       highlights = {
         PimUserHeader = { fg = "#268bd2", bold = true },
         PimAssistantHeader = { fg = "#6c71c4", bold = true },
+        clear_before_new = true,
+        virtual_text = true,
+        default_label = "pi",
       },
     })
   end,
@@ -88,6 +91,7 @@ Implemented:
 - Adds buffer-local `<leader>j` / `<leader>k` mappings in the conversation buffer for next/previous message navigation.
 - Shows a right-aligned spinner/status in the conversation buffer while pi is working or running tools.
 - Uses configurable `PimUserHeader`, `PimAssistantHeader`, `PimToolHeader`, `PimErrorHeader`, `PimSystemHeader`, `PimHighlight`, `PimStatusWorking`, and `PimStatusIdle` highlight groups that users can override. Defaults use blue for user headers and purple for assistant headers.
+- Renders agent-created file/range highlights as clearable extmarks with optional virtual text labels.
 - Streams assistant `text_delta` updates into the conversation pane.
 - Writes a durable markdown transcript and raw JSONL event log under `stdpath("state") .. "/pim/sessions"`.
 - Rehydrates the conversation pane from the markdown transcript when reattaching to the same session.

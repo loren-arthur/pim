@@ -106,6 +106,16 @@ export default function pimNvimBridge(pi: ExtensionAPI) {
       startLine: Type.Number({ description: "1-based start line" }),
       endLine: Type.Optional(Type.Number({ description: "1-based end line" })),
       hlGroup: Type.Optional(Type.String({ description: "Neovim highlight group, defaults to PimHighlight" })),
+      label: Type.Optional(Type.String({ description: "Virtual text label to show on the highlighted range, defaults to pi" })),
+      labelHlGroup: Type.Optional(Type.String({ description: "Highlight group for the virtual text label, defaults to PimMuted" })),
+      labelPosition: Type.Optional(Type.Union([
+        Type.Literal("eol"),
+        Type.Literal("right_align"),
+        Type.Literal("overlay"),
+        Type.Literal("inline"),
+      ], { description: "Where to render the virtual text label" })),
+      virtualText: Type.Optional(Type.Boolean({ description: "Whether to show the virtual text label" })),
+      clearExisting: Type.Optional(Type.Boolean({ description: "Whether to clear existing pim highlights in the target buffer before adding this one" })),
       openMode: Type.Optional(Type.Union([
         Type.Literal("edit"),
         Type.Literal("split"),

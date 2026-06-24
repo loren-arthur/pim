@@ -5,6 +5,8 @@ local state = {
   port = nil,
   token = nil,
   namespace = nil,
+  opts = {},
+  highlight_marks = {},
 }
 
 local uv = vim.uv or vim.loop
@@ -97,6 +99,60 @@ local function open_file(params)
   }
 end
 
+local function ensure_namespace()
+  if not state.namespace then
+    state.namespace = vim.api.nvim_create_namespace("pim-bridge")
+  end
+  return state.namespace
+end
+
+local function highlight_opts()
+  return state.opts.highlights or {}
+end
+
+local function should_clear_before_new(params)
+  if params.clearExisting ~= nil then
+    return params.clearExisting ~= false
+  end
+  local opts = highlight_opts()
+  if opts.clear_before_new ~= nil then
+    return opts.clear_before_new ~= false
+  end
+  return true
+end
+
+local function should_show_virtual_text(params)
+  if params.virtualText ~= nil then
+    return params.virtualText ~= false
+  end
+  local opts = highlight_opts()
+  if opts.virtual_text ~= nil then
+    return opts.virtual_text ~= false
+  end
+  return true
+end
+
+local function highlight_label(params)
+  if params.label ~= nil then
+    return tostring(params.label)
+  end
+  local opts = highlight_opts()
+  if opts.default_label ~= nil then
+    return tostring(opts.default_label)
+  end
+  return "pi"
+end
+
+local function forget_marks_for_buffer(bufnr)
+  local kept = {}
+  for _, mark in ipairs(state.highlight_marks) do
+    if mark.bufnr ~= bufnr then
+      table.insert(kept, mark)
+    end
+  end
+  state.highlight_marks = kept
+end
+
 local function highlight_range(params)
   params = params or {}
   local path = params.path
@@ -115,8 +171,11 @@ local function highlight_range(params)
     bufnr = vim.api.nvim_get_current_buf()
   end
 
-  if not state.namespace then
-    state.namespace = vim.api.nvim_create_namespace("pim-bridge")
+  local ns = ensure_namespace()
+
+  if should_clear_before_new(params) then
+    vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+    forget_marks_for_buffer(bufnr)
   end
 
   if start_line > end_line then
@@ -127,8 +186,29 @@ local function highlight_range(params)
   start_line = math.max(1, math.min(start_line, line_count))
   end_line = math.max(1, math.min(end_line, line_count))
 
+  local label = highlight_label(params)
+  local show_virtual_text = should_show_virtual_text(params) and label ~= ""
+  local ids = {}
   for lnum = start_line, end_line do
-    vim.api.nvim_buf_add_highlight(bufnr, state.namespace, hl, lnum - 1, 0, -1)
+    local opts = {
+      line_hl_group = hl,
+      hl_eol = true,
+      priority = 150,
+      right_gravity = false,
+    }
+    if show_virtual_text and lnum == start_line then
+      opts.virt_text = { { "  " .. label, params.labelHlGroup or "PimMuted" } }
+      opts.virt_text_pos = params.labelPosition or "eol"
+    end
+    local id = vim.api.nvim_buf_set_extmark(bufnr, ns, lnum - 1, 0, opts)
+    table.insert(ids, id)
+    table.insert(state.highlight_marks, {
+      bufnr = bufnr,
+      id = id,
+      startLine = start_line,
+      endLine = end_line,
+      label = label,
+    })
   end
 
   for _, winid in ipairs(vim.api.nvim_list_wins()) do
@@ -143,7 +223,9 @@ local function highlight_range(params)
     path = vim.api.nvim_buf_get_name(bufnr),
     startLine = start_line,
     endLine = end_line,
-    namespace = state.namespace,
+    namespace = ns,
+    extmarks = ids,
+    label = show_virtual_text and label or nil,
   }
 end
 
@@ -161,12 +243,15 @@ local function clear_highlights(params)
   else
     bufs = vim.api.nvim_list_bufs()
   end
+  local cleared_buffers = 0
   for _, bufnr in ipairs(bufs) do
     if vim.api.nvim_buf_is_valid(bufnr) then
       vim.api.nvim_buf_clear_namespace(bufnr, state.namespace, 0, -1)
+      forget_marks_for_buffer(bufnr)
+      cleared_buffers = cleared_buffers + 1
     end
   end
-  return { cleared = true }
+  return { cleared = true, buffers = cleared_buffers }
 end
 
 local function open_terminal(params)
@@ -306,6 +391,7 @@ end
 
 function M.setup(opts)
   opts = opts or {}
+  state.opts = opts
   if opts.enabled == false then
     return nil
   end
@@ -331,6 +417,10 @@ end
 
 function M.clear_highlights(params)
   return clear_highlights(params or {})
+end
+
+function M.highlight_range(params)
+  return highlight_range(params or {})
 end
 
 return M

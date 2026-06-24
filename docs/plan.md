@@ -92,11 +92,11 @@ Goal: make agent-created visual marks useful and easy to dismiss.
 
 Planned changes:
 
-- Replace `nvim_buf_add_highlight` with extmark-based highlights using the configurable `PimHighlight` group by default.
-- Clear previous transient highlights before adding a new default highlight.
+- Replace `nvim_buf_add_highlight` with extmark-based highlights using the configurable `PimHighlight` group by default. Initial implementation is done.
+- Clear previous transient highlights before adding a new default highlight. Initial implementation is done with `clear_before_new = true`.
 - Keep `:PimClearHighlights` for explicit cleanup.
-- Add optional virtual text labels such as `pim` or `pi: relevant range`.
-- Track highlight IDs so future commands can clear one mark, one buffer, or all marks.
+- Add optional virtual text labels such as `pim` or `pi: relevant range`. Initial implementation is done via `label`, `virtualText`, and `default_label`.
+- Track highlight IDs so future commands can clear one mark, one buffer, or all marks. Initial ID tracking is implemented; targeted clear commands are still future work.
 - Document that `:nohlsearch` does not clear pim highlights because pim uses its own namespace.
 
 Possible config:
