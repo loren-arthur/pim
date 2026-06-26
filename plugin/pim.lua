@@ -33,6 +33,10 @@ end, {
   desc = "Open pim and immediately start a fresh pi session",
 })
 
+vim.api.nvim_create_user_command("PimOpenSelect", function()
+  pim().open_select()
+end, { desc = "Open pim with a per-directory session selector" })
+
 vim.api.nvim_create_user_command("PimSessionInfo", function()
   pim().session_info()
 end, { desc = "Show current and workspace-pinned pim session info" })

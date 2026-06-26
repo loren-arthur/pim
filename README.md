@@ -32,6 +32,8 @@ With lazy.nvim:
     require("pim").setup({
       pi_cmd = { "pi", "--mode", "rpc" },
       pane = { width = 80 },
+      -- Optional: make :PimOpen ask which per-directory session to use.
+      session = { on_open = "select" },
       highlights = {
         PimUserHeader = { fg = "#268bd2", bold = true },
         PimAssistantHeader = { fg = "#6c71c4", bold = true },
@@ -81,6 +83,7 @@ single-spec invocation pattern.
 - `:PimToggle` — toggle the conversation pane.
 - `:PimNewSession [name]` — start a fresh pi session in the current pim RPC process. If no name is provided, pim generates one from the cwd and timestamp.
 - `:PimOpenFresh [name]` — open pim and immediately start a fresh pi session.
+- `:PimOpenSelect` — open pim with a selector of sessions tied to the current directory plus a fresh-session option.
 - `:PimSessionInfo` — show current and workspace-pinned session metadata.
 - `:PimForgetSession` — forget the workspace-pinned session for the current cwd.
 - `:PimSend [prompt]` — send a prompt. If no prompt is provided, opens the floating composer.
@@ -132,7 +135,8 @@ Implemented:
   - `nvim_get_current_context`
 - Starts `pi --mode rpc` as a Neovim job.
 - Requests and displays Pi RPC session state with `get_state`.
-- Remembers the last session file per workspace under Neovim state and resumes that exact file on next open when `pi_cmd` does not already specify an explicit session mode.
+- Remembers the last session file per workspace under Neovim state and can resume that exact file on next open when `pi_cmd` does not already specify an explicit session mode.
+- Can show a per-directory session selector on open via `session = { on_open = "select" }`.
 - Can start a fresh session through Pi RPC `new_session` and optionally name it; unnamed fresh sessions get generated cwd/timestamp names.
 - Parses strict JSONL from pi stdout.
 - Opens a scratch `pim://conversation` buffer in a right-side vertical pane.

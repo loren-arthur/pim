@@ -73,6 +73,13 @@ local function workspace_session_path()
   return vim.fn.stdpath("state") .. "/pim/workspaces/" .. workspace_key() .. ".json"
 end
 
+local function pi_session_dir_for_cwd()
+  local agent_dir = vim.fn.expand(state.opts.pi_config_dir or "~/.pi/agent")
+  local cwd = vim.fn.fnamemodify(vim.fn.getcwd(), ":p"):gsub("[/\\]$", "")
+  local safe = "--" .. cwd:gsub("^[/\\]", ""):gsub("[/\\:]", "-") .. "--"
+  return agent_dir .. "/sessions/" .. safe
+end
+
 local function read_workspace_session()
   local path = workspace_session_path()
   if vim.fn.filereadable(path) == 0 then
@@ -133,6 +140,79 @@ local function startup_session_args()
     return { "--session", saved.sessionFile }
   end
   return {}
+end
+
+local function first_user_text(path)
+  local file = io.open(path, "r")
+  if not file then
+    return nil
+  end
+  for _ = 1, 80 do
+    local line = file:read("*l")
+    if not line then
+      break
+    end
+    local ok, entry = pcall(vim.json.decode, line)
+    if ok and type(entry) == "table" and entry.type == "message" and entry.message and entry.message.role == "user" then
+      local content = entry.message.content
+      if type(content) == "table" then
+        for _, item in ipairs(content) do
+          if type(item) == "table" and item.type == "text" and item.text then
+            file:close()
+            return item.text:gsub("\n", " ")
+          end
+        end
+      end
+    end
+  end
+  file:close()
+  return nil
+end
+
+local function session_summary(path)
+  local session = {}
+  local file = io.open(path, "r")
+  if file then
+    local first = file:read("*l")
+    file:close()
+    if first then
+      local ok, entry = pcall(vim.json.decode, first)
+      if ok and type(entry) == "table" then
+        session.id = entry.id
+        session.timestamp = entry.timestamp
+      end
+    end
+  end
+  session.path = path
+  session.mtime = vim.fn.getftime(path)
+  session.preview = first_user_text(path)
+  return session
+end
+
+local function workspace_sessions(limit)
+  limit = limit or 20
+  local dir = pi_session_dir_for_cwd()
+  local files = vim.fn.globpath(dir, "*.jsonl", false, true)
+  table.sort(files, function(a, b)
+    return vim.fn.getftime(a) > vim.fn.getftime(b)
+  end)
+  local out = {}
+  for _, path in ipairs(files) do
+    table.insert(out, session_summary(path))
+    if #out >= limit then
+      break
+    end
+  end
+  return out
+end
+
+local function format_session_choice(session)
+  local when = session.timestamp or os.date("%Y-%m-%d %H:%M", session.mtime)
+  local name = session.preview or session.id or vim.fn.fnamemodify(session.path, ":t")
+  if #name > 80 then
+    name = name:sub(1, 79) .. "…"
+  end
+  return when .. "  " .. name
 end
 
 local function default_session_name()
@@ -462,10 +542,65 @@ function M.setup(opts)
   apply_keymaps(state.opts.keymaps)
 end
 
-function M.open()
+local function open_with_args(args)
   buffer.open()
-  rpc.start(startup_session_args())
+  rpc.start(args)
   rpc.get_state()
+end
+
+function M.open_select()
+  buffer.open()
+  if rpc.is_running() then
+    M.session_info()
+    return
+  end
+
+  local choices = {}
+  local pinned = read_workspace_session()
+  if pinned and pinned.sessionFile and vim.fn.filereadable(pinned.sessionFile) == 1 then
+    table.insert(choices, {
+      kind = "session",
+      path = pinned.sessionFile,
+      label = "● pinned workspace session  " .. (pinned.sessionName or pinned.sessionId or vim.fn.fnamemodify(pinned.sessionFile, ":t")),
+    })
+  end
+
+  table.insert(choices, { kind = "fresh", label = "+ start fresh session" })
+  for _, session in ipairs(workspace_sessions(15)) do
+    local already_pinned = pinned and pinned.sessionFile == session.path
+    if not already_pinned then
+      table.insert(choices, {
+        kind = "session",
+        path = session.path,
+        label = "  " .. format_session_choice(session),
+      })
+    end
+  end
+
+  vim.ui.select(choices, {
+    prompt = "pim: choose session for " .. vim.fn.fnamemodify(vim.fn.getcwd(), ":t"),
+    format_item = function(item)
+      return item.label
+    end,
+  }, function(choice)
+    if not choice then
+      return
+    end
+    if choice.kind == "fresh" then
+      M.open_fresh()
+      return
+    end
+    open_with_args({ "--session", choice.path })
+  end)
+end
+
+function M.open()
+  local session_opts = state.opts.session or {}
+  if session_opts.on_open == "select" and not rpc.is_running() and not pi_cmd_has_explicit_session_choice() then
+    M.open_select()
+    return
+  end
+  open_with_args(startup_session_args())
 end
 
 function M.new_session(name)
@@ -480,7 +615,9 @@ function M.new_session(name)
 end
 
 function M.open_fresh(name)
-  M.open()
+  buffer.open()
+  rpc.start()
+  rpc.get_state()
   M.new_session(name)
 end
 
