@@ -19,6 +19,20 @@ vim.api.nvim_create_user_command("PimToggle", function()
   pim().toggle()
 end, { desc = "Toggle pim conversation pane" })
 
+vim.api.nvim_create_user_command("PimNewSession", function(opts)
+  pim().new_session(opts.args)
+end, {
+  nargs = "*",
+  desc = "Start a fresh pi session in the current pim RPC process",
+})
+
+vim.api.nvim_create_user_command("PimOpenFresh", function(opts)
+  pim().open_fresh(opts.args)
+end, {
+  nargs = "*",
+  desc = "Open pim and immediately start a fresh pi session",
+})
+
 vim.api.nvim_create_user_command("PimSend", function(opts)
   pim().send(opts.args)
 end, {

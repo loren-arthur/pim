@@ -136,6 +136,18 @@ function M.get_state()
   return M.send({ type = "get_state" })
 end
 
+function M.new_session(parent_session)
+  local command = { type = "new_session" }
+  if parent_session then
+    command.parentSession = parent_session
+  end
+  return M.send(command)
+end
+
+function M.set_session_name(name)
+  return M.send({ type = "set_session_name", name = name })
+end
+
 function M.abort()
   return M.send({ type = "abort" })
 end

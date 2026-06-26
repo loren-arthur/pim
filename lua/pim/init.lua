@@ -26,6 +26,8 @@ local state = {
   },
   is_streaming = false,
   session_id = nil,
+  session_file = nil,
+  pending_new_session_name = nil,
   assistant_open_in_transcript = false,
 }
 
@@ -210,6 +212,29 @@ local function handle_event(event)
     return
   end
 
+  if event.type == "response" and event.command == "new_session" and event.success then
+    local cancelled = event.data and event.data.cancelled
+    if cancelled then
+      buffer.append_line("pim new session cancelled")
+      state.pending_new_session_name = nil
+      rpc.get_state()
+      return
+    end
+
+    buffer.append_line("pim started a fresh pi session")
+    if state.pending_new_session_name and state.pending_new_session_name ~= "" then
+      rpc.set_session_name(state.pending_new_session_name)
+    end
+    state.pending_new_session_name = nil
+    rpc.get_state()
+    return
+  end
+
+  if event.type == "response" and event.command == "set_session_name" and event.success then
+    rpc.get_state()
+    return
+  end
+
   if event.type == "agent_start" then
     state.is_streaming = true
     buffer.start_working("pi working…")
@@ -348,6 +373,19 @@ function M.open()
   buffer.open()
   rpc.start()
   rpc.get_state()
+end
+
+function M.new_session(name)
+  buffer.open({ focus = false })
+  state.pending_new_session_name = name
+  buffer.append_line("pim starting a fresh pi session…")
+  transcript.append_markdown("\npim starting a fresh pi session…\n")
+  rpc.new_session(state.session_file)
+end
+
+function M.open_fresh(name)
+  M.open()
+  M.new_session(name)
 end
 
 function M.close()

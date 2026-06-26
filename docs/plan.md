@@ -148,6 +148,7 @@ Goal: expose more Pi RPC capabilities in Neovim.
 
 Ideas:
 
+- Fresh session command. Initial `:PimNewSession [name]` / `:PimOpenFresh [name]` implementation is done.
 - Session picker/switcher.
 - Model picker.
 - Compact/summarize controls.

@@ -79,6 +79,8 @@ single-spec invocation pattern.
 - `:PimOpen` — open the conversation pane and start `pi --mode rpc`.
 - `:PimClose` — close the conversation pane.
 - `:PimToggle` — toggle the conversation pane.
+- `:PimNewSession [name]` — start a fresh pi session in the current pim RPC process.
+- `:PimOpenFresh [name]` — open pim and immediately start a fresh pi session.
 - `:PimSend [prompt]` — send a prompt. If no prompt is provided, opens the floating composer.
 - `:'<,'>PimSendSelection [comment]` — send selected/ranged text plus optional comment. If no comment is provided, opens the floating selection composer.
 - `:PimCompose` — open a floating markdown composer for a longer prompt (`<C-s>` submits, `q` cancels).
@@ -128,6 +130,7 @@ Implemented:
   - `nvim_get_current_context`
 - Starts `pi --mode rpc` as a Neovim job.
 - Requests and displays Pi RPC session state with `get_state`.
+- Can start a fresh session through Pi RPC `new_session` and optionally name it.
 - Parses strict JSONL from pi stdout.
 - Opens a scratch `pim://conversation` buffer in a right-side vertical pane.
 - Adds buffer-local `<leader>j` / `<leader>k` mappings in the conversation buffer for next/previous message navigation.
