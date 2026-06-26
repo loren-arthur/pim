@@ -78,6 +78,33 @@ end, {
   desc = "Open a floating pim composer for selected/ranged text",
 })
 
+vim.api.nvim_create_user_command("PimComment", function(opts)
+  pim().comment({
+    line1 = opts.range > 0 and opts.line1 or nil,
+    line2 = opts.range > 0 and opts.line2 or nil,
+    comment = opts.args,
+  })
+end, {
+  nargs = "*",
+  range = true,
+  desc = "Attach an inline comment to the current line/range",
+})
+
+vim.api.nvim_create_user_command("PimSendComments", function(opts)
+  pim().send_comments({ intro = opts.args ~= "" and opts.args or nil })
+end, {
+  nargs = "*",
+  desc = "Send all pending inline comments to pi as one structured message",
+})
+
+vim.api.nvim_create_user_command("PimComments", function()
+  pim().list_comments()
+end, { desc = "List pending pim inline comments" })
+
+vim.api.nvim_create_user_command("PimClearComments", function()
+  pim().clear_comments()
+end, { desc = "Clear all pending pim inline comments" })
+
 vim.api.nvim_create_user_command("PimSteer", function(opts)
   pim().steer(opts.args)
 end, {
@@ -141,3 +168,7 @@ end, { desc = "Open pi's model settings file for manual editing" })
 vim.api.nvim_create_user_command("PimReload", function()
   pim().reload()
 end, { desc = "Restart pi (resuming the session) to apply config/model changes" })
+
+vim.api.nvim_create_user_command("PimHelp", function()
+  pim().help()
+end, { desc = "Show a buffer listing all pim commands and their usage" })

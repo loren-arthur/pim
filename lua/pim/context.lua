@@ -92,4 +92,34 @@ function M.prompt_for_range(comment, ctx)
   return table.concat(chunks, "\n")
 end
 
+-- Build a single structured prompt from a batch of inline annotations (as
+-- produced by `annotations.list()`), each with its file, range, text, and
+-- comment. `intro` is an optional overarching instruction/question.
+function M.prompt_for_annotations(annotations, intro)
+  local chunks = {
+    "Editor context: inline comments attached to code ranges.",
+  }
+
+  if intro and intro ~= "" then
+    table.insert(chunks, "")
+    table.insert(chunks, "Overall request:")
+    table.insert(chunks, intro)
+  end
+
+  for index, ann in ipairs(annotations) do
+    local file = ann.file or "[No file name]"
+    local range = ann.range.start == ann.range.finish
+        and tostring(ann.range.start)
+        or (ann.range.start .. "-" .. ann.range.finish)
+    table.insert(chunks, "")
+    table.insert(chunks, string.format("Comment %d — %s:%s", index, file, range))
+    table.insert(chunks, "```")
+    table.insert(chunks, ann.text or "")
+    table.insert(chunks, "```")
+    table.insert(chunks, "Comment: " .. (ann.comment or ""))
+  end
+
+  return table.concat(chunks, "\n")
+end
+
 return M

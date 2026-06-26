@@ -190,7 +190,9 @@ describe("bridge method dispatch", function()
     local response = frames[#frames]
     assert.is_true(response.ok, tostring(response.error))
     -- The buffer for that path should now exist and be current.
-    assert.are.same(tmp, vim.api.nvim_buf_get_name(0))
+    -- Compare resolved paths: nvim normalizes buffer names through symlinks
+    -- (e.g. macOS /var -> /private/var), which would otherwise mismatch tmp.
+    assert.are.same(vim.fn.resolve(tmp), vim.fn.resolve(vim.api.nvim_buf_get_name(0)))
     vim.fn.delete(tmp)
   end)
 

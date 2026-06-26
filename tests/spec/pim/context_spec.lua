@@ -31,7 +31,9 @@ describe("context.range", function()
 
   it("returns the file path, line range, and selected text", function()
     local ctx = context.range({ bufnr = bufnr, line1 = 2, line2 = 3 })
-    assert.are.same("/tmp/pim-test-context.lua", ctx.file)
+    -- nvim resolves buffer names through symlinks (macOS /tmp -> /private/tmp),
+    -- so compare resolved paths rather than the literal name we set.
+    assert.are.same(vim.fn.resolve("/tmp/pim-test-context.lua"), vim.fn.resolve(ctx.file))
     assert.are.same({ start = 2, finish = 3 }, ctx.range)
     assert.are.same("line 2\nline 3", ctx.text)
   end)

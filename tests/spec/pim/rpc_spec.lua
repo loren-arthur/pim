@@ -5,6 +5,7 @@
 package.loaded["pim.rpc"] = nil
 
 local rpc = require("pim.rpc")
+local interp = require("helpers.interp")
 local uv = vim.uv or vim.loop
 
 -- Path to the fake_pi script in this repo's tests dir.
@@ -84,7 +85,7 @@ describe("rpc.start / event forwarding", function()
 
   it("forwards JSONL events from stdout to on_event", function()
     rpc.setup({
-      pi_cmd = { "lua", fake_pi, behavior },
+      pi_cmd = interp.cmd(fake_pi, behavior),
       on_event = function(ev) table.insert(events, ev) end,
     })
     rpc.start()
@@ -104,7 +105,7 @@ describe("rpc.start / event forwarding", function()
 
   it("emits pim_exit when the subprocess exits", function()
     rpc.setup({
-      pi_cmd = { "lua", fake_pi, behavior },
+      pi_cmd = interp.cmd(fake_pi, behavior),
       on_event = function(ev) table.insert(events, ev) end,
     })
     rpc.start()
@@ -126,7 +127,7 @@ describe("rpc.start / event forwarding", function()
 
   it("is_running is true while subprocess is alive", function()
     rpc.setup({
-      pi_cmd = { "lua", fake_pi, write_behavior({ 'EVENT {"type":"agent_start"}', 'EXIT' }) },
+      pi_cmd = interp.cmd(fake_pi, write_behavior({ 'EVENT {"type":"agent_start"}', 'EXIT' })),
       on_event = function() end,
     })
     rpc.start()
@@ -142,7 +143,7 @@ describe("rpc.start / event forwarding", function()
       -- No upfront events; just read stdin and respond.
     })
     rpc.setup({
-      pi_cmd = { "lua", fake_pi, behavior2 },
+      pi_cmd = interp.cmd(fake_pi, behavior2),
       on_event = function(ev) table.insert(events, ev) end,
     })
     rpc.start()
@@ -177,7 +178,7 @@ describe("rpc.start / event forwarding", function()
       'EXIT',
     })
     rpc.setup({
-      pi_cmd = { "lua", fake_pi, b2 },
+      pi_cmd = interp.cmd(fake_pi, b2),
       on_event = function() end,
     })
     -- pre-stress: this asserts the start path doesn't error with extra_args
@@ -203,7 +204,7 @@ describe("rpc race-condition fix", function()
       'EXIT',
     })
     rpc.setup({
-      pi_cmd = { "lua", fake_pi, quick },
+      pi_cmd = interp.cmd(fake_pi, quick),
       on_event = function(ev)
         table.insert(exit_events, ev)
       end,
@@ -214,7 +215,7 @@ describe("rpc race-condition fix", function()
     -- replaced by a new job.
     rpc.stop()
     rpc.setup({
-      pi_cmd = { "lua", fake_pi, quick },
+      pi_cmd = interp.cmd(fake_pi, quick),
       on_event = function() end, -- intentionally suppress for stop/start
     })
     -- Start again with the same quick fake, then again with slow. This
@@ -223,13 +224,13 @@ describe("rpc race-condition fix", function()
     package.loaded["pim.rpc"] = nil
     rpc = require("pim.rpc")
     rpc.setup({
-      pi_cmd = { "lua", fake_pi, quick },
+      pi_cmd = interp.cmd(fake_pi, quick),
       on_event = function() end,
     })
     rpc.start()
     rpc.stop()
     rpc.setup({
-      pi_cmd = { "lua", fake_pi, slow },
+      pi_cmd = interp.cmd(fake_pi, slow),
       on_event = function(ev) table.insert(exit_events, ev) end,
     })
     rpc.start()

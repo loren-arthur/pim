@@ -90,6 +90,10 @@ single-spec invocation pattern.
 - `:'<,'>PimSendSelection [comment]` — send selected/ranged text plus optional comment. If no comment is provided, opens the floating selection composer.
 - `:PimCompose` — open a floating markdown composer for a longer prompt (`<C-s>` submits, `q` cancels).
 - `:'<,'>PimComposeSelection` — open a floating composer for a comment on the selected/ranged text.
+- `:'<,'>PimComment [comment]` — attach an inline comment to the current line/range (anchored with an extmark, shown as a sign + virtual text). If no comment is provided, opens the composer.
+- `:PimComments` — list pending inline comments.
+- `:PimSendComments [note]` — collect all pending inline comments and send them to pi as one structured message, with an optional overall note; clears them afterward.
+- `:PimClearComments` — clear all pending inline comments.
 - `:PimSteer [prompt]` — explicitly queue a steering message while pi is processing.
 - `:PimFollowUp [prompt]` — explicitly queue a follow-up message after pi finishes current work.
 - `:PimTranscript` — open the durable markdown transcript.
@@ -104,6 +108,7 @@ single-spec invocation pattern.
 - `:PimModel` — interactively pick the pi model (via `vim.ui.select`, so telescope/fzf/snacks themes apply); the choice is written to settings and pi reloads. The current model is marked.
 - `:PimModelEdit` — open pi's model settings file (`~/.pi/agent/settings.json`) for manual editing.
 - `:PimReload` — restart pi (resuming the current session) so edited config/model settings take effect.
+- `:PimHelp` — open a buffer listing every command, its default mapping, and a short usage note.
 
 ## Keymaps
 
@@ -113,6 +118,10 @@ sure `mapleader` is set before `setup` runs.
 
 - `<leader>pp` — toggle the conversation pane.
 - `<leader>ps` — send a prompt (normal) / send the selection (visual).
+- `<leader>pc` — compose a prompt (normal) / compose with the selection (visual).
+- `<leader>pi` — add an inline comment on the line (normal) / selection (visual).
+- `<leader>pI` — send pending inline comments.
+- `<leader>pC` — clear pending inline comments.
 - `<leader>pS` — steer.
 - `<leader>pf` — follow up.
 - `<leader>pm` — pick the model.
@@ -120,6 +129,7 @@ sure `mapleader` is set before `setup` runs.
 - `<leader>pa` — abort.
 - `<leader>px` — stop pi.
 - `<leader>pt` — open the transcript.
+- `<leader>p?` — open the command help buffer.
 
 ## Current prototype behavior
 

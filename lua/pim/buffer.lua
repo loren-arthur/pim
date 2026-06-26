@@ -300,6 +300,9 @@ local function setup_highlights()
     PimMuted = { link = "Comment", default = true },
     PimStatusWorking = { link = "DiagnosticWarn", default = true },
     PimStatusIdle = { link = "Comment", default = true },
+    PimAnnotation = { link = "Visual", default = true },
+    PimAnnotationSign = { link = "DiagnosticInfo", default = true },
+    PimAnnotationText = { link = "Comment", default = true },
   }
 
   for group, spec in pairs(defaults) do
@@ -388,6 +391,12 @@ function M.set_lines(lines)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     rebuild_message_marks(bufnr)
   end)
+  -- set_lines replaces row 0, which drops the right-aligned status badge
+  -- extmark. Re-apply the current status so the activity badge survives
+  -- transcript reloads (e.g. attaching via the session selector).
+  if state.status_label and state.status_label ~= "" then
+    update_status_extmark(state.status_label, state.status_hl)
+  end
   scroll_to_bottom()
 end
 

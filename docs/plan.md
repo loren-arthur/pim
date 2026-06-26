@@ -138,9 +138,9 @@ Ideas:
 > Loren note: prioritize the composer first. It should improve `:PimSend`, `:PimSendSelection`, longer steering/follow-up messages, and become the base for inline-comment workflows.
 
 - Floating composer buffer for long prompts. Initial `:PimCompose` and `:PimComposeSelection` implementation is done.
-- Inline annotations attached to code ranges via extmarks.
-- Commands to collect annotations and send them as structured context.
-- Buffer-local mappings for “send this comment/range to pim”.
+- Inline annotations attached to code ranges via extmarks. Done: `lua/pim/annotations.lua` anchors each comment with an extmark (sign + eol virtual text via `PimAnnotation*` groups) so it tracks edits. Added/removed via `:PimComment` (line or range) and `:PimClearComments`, listed via `:PimComments`.
+- Commands to collect annotations and send them as structured context. Done: `:PimSendComments` collects all live annotations through `context.prompt_for_annotations` into one structured message (with optional overall note), then clears them.
+- Buffer-local mappings for “send this comment/range to pim”. Done via the global prefix: `<leader>pi` add inline comment (normal line / visual range), `<leader>pI` send pending comments, `<leader>pC` clear them.
 
 ### 5. Session/model controls
 
@@ -150,6 +150,7 @@ Ideas:
 
 - Deterministic workspace resume. Initial per-cwd pinned session file persistence and `:PimSessionInfo` / `:PimForgetSession` implementation is done.
 - Per-directory session selector. Initial `:PimOpenSelect` and `session = { on_open = "select" }` implementation is done; it lists sessions tied to the current cwd plus a fresh-session option.
+  - Known bug: the selector only globs pi's session dir derived from the *current* `getcwd()` (`pi_session_dir_for_cwd`). pi keys session dirs by the cwd it was launched in, so a session started when Neovim's cwd differed (launched elsewhere, or `:cd` after start) lands under a different dir and is missing from the list. Fix options: also scan the running session's actual dir / pinned-session dir, or resolve sessions by reading their recorded cwd rather than the path-encoded dir name.
 - Fresh session command. Initial `:PimNewSession [name]` / `:PimOpenFresh [name]` implementation is done; unnamed sessions get generated cwd/timestamp names.
 - Session picker/switcher.
 - Model picker.

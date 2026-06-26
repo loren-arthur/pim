@@ -4,6 +4,8 @@
 -- modules stubbed are bridge (no real TCP) and jsonl / settings_editor (we
 -- still want them loaded fresh, so they participate in the chain).
 
+local interp = require("helpers.interp")
+
 local function wipe_pim_buffer()
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_valid(b) and vim.api.nvim_buf_get_name(b) == "pim://conversation" then
@@ -94,7 +96,7 @@ describe("pim end-to-end (fake_pi → buffer + transcript)", function()
     local pim = require("pim")
     pim.setup({
       keymaps = false,
-      pi_cmd = { "lua", fake_pi_path(), behavior },
+      pi_cmd = interp.cmd(fake_pi_path(), behavior),
       transcript = { dir = tmpdir },
       bridge = { enabled = false },
     })
@@ -126,7 +128,7 @@ describe("pim end-to-end (fake_pi → buffer + transcript)", function()
     local pim = require("pim")
     pim.setup({
       keymaps = false,
-      pi_cmd = { "lua", fake_pi_path(), behavior },
+      pi_cmd = interp.cmd(fake_pi_path(), behavior),
       transcript = { dir = tmpdir },
       bridge = { enabled = false },
     })
@@ -159,7 +161,7 @@ describe("pim end-to-end (fake_pi → buffer + transcript)", function()
     local pim = require("pim")
     pim.setup({
       keymaps = false,
-      pi_cmd = { "lua", fake_pi_path(), behavior },
+      pi_cmd = interp.cmd(fake_pi_path(), behavior),
       transcript = { dir = tmpdir },
       bridge = { enabled = false },
     })

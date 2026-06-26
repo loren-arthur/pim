@@ -23,6 +23,10 @@ local this_file = vim.fn.fnamemodify(source, ":p")
 local repo_root = vim.fn.fnamemodify(this_file, ":h:h")
 vim.opt.rtp:prepend(repo_root)
 
+-- Make `require("helpers.<name>")` resolve to tests/helpers/<name>.lua so specs
+-- can share small utilities (interpreter probing, fixtures, etc.).
+package.path = package.path .. ";" .. repo_root .. "/tests/?.lua"
+
 local function find_plenary()
   local function check(path)
     if vim.fn.isdirectory(path) == 1 and vim.fn.filereadable(path .. "/lua/plenary/busted.lua") == 1 then

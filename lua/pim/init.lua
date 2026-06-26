@@ -1,7 +1,9 @@
+local annotations = require("pim.annotations")
 local bridge = require("pim.bridge")
 local buffer = require("pim.buffer")
 local composer = require("pim.composer")
 local context = require("pim.context")
+local help = require("pim.help")
 local rpc = require("pim.rpc")
 local settings_editor = require("pim.settings_editor")
 local transcript = require("pim.transcript")
@@ -276,6 +278,11 @@ local function render_session_state(data)
     buffer.append_line(line)
     transcript.append_markdown("\n\n<!-- " .. line .. " -->\n")
   end
+  -- Ensure the activity badge is present as soon as a session attaches,
+  -- not only after the first agent_start/agent_end cycle.
+  if not state.is_streaming then
+    buffer.stop_working("pi idle")
+  end
 end
 
 local function truncate(text, max_len)
@@ -518,6 +525,10 @@ local function apply_keymaps(cfg)
   map("x", "s", ":PimSendSelection<CR>", "send selection")
   map("n", "c", function() M.compose() end, "compose prompt")
   map("x", "c", ":PimComposeSelection<CR>", "compose with selection")
+  map("n", "i", function() M.comment() end, "add inline comment on line")
+  map("x", "i", ":PimComment<CR>", "add inline comment on selection")
+  map("n", "I", function() M.send_comments() end, "send pending inline comments")
+  map("n", "C", function() M.clear_comments() end, "clear inline comments")
   map("n", "S", function() M.steer() end, "steer")
   map("n", "f", function() M.follow_up() end, "follow up")
   map("n", "m", function() M.pick_model() end, "pick model")
@@ -525,6 +536,7 @@ local function apply_keymaps(cfg)
   map("n", "a", function() M.abort() end, "abort")
   map("n", "x", function() M.stop() end, "stop pi")
   map("n", "t", function() M.open_transcript() end, "open transcript")
+  map("n", "?", function() M.help() end, "show pim command help")
 end
 
 function M.setup(opts)
@@ -723,6 +735,102 @@ function M.send_buffer(comment)
   local ctx = context.current_buffer()
   local prompt = context.prompt_for_range(comment, ctx)
   send_prompt_with_behavior(prompt, state.is_streaming and state.opts.streaming_behavior or nil)
+end
+
+-- Inline comments: attach a free-text annotation to a line/range. The comment
+-- is anchored with an extmark so it tracks edits, and is collected later via
+-- M.send_comments. Without a comment argument, opens the floating composer.
+function M.comment(opts)
+  opts = opts or {}
+  local bufnr = vim.api.nvim_get_current_buf()
+  local line1, line2 = opts.line1, opts.line2
+
+  local function add(text)
+    if not text or text == "" then
+      return
+    end
+    annotations.add(text, { bufnr = bufnr, line1 = line1, line2 = line2 })
+    local total = annotations.count()
+    vim.notify(string.format("pim: added inline comment (%d pending)", total), vim.log.levels.INFO)
+  end
+
+  if opts.comment and opts.comment ~= "" then
+    add(opts.comment)
+    return
+  end
+
+  composer.open({
+    title = "pim inline comment — <C-s> submit, q cancel",
+    on_submit = add,
+  })
+end
+
+-- Collect every pending inline comment and send them to pi as one structured
+-- message. With `intro`, prepend an overarching request. Clears the
+-- annotations afterward unless opts.keep is true.
+function M.send_comments(opts)
+  opts = opts or {}
+  local list = annotations.list()
+  if #list == 0 then
+    vim.notify("pim: no inline comments to send", vim.log.levels.WARN)
+    return
+  end
+
+  local function submit(intro)
+    local prompt = context.prompt_for_annotations(list, intro)
+    send_prompt_with_behavior(prompt, state.is_streaming and state.opts.streaming_behavior or nil)
+    if not opts.keep then
+      annotations.clear()
+    end
+  end
+
+  if opts.intro ~= nil then
+    submit(opts.intro)
+    return
+  end
+
+  composer.open({
+    title = string.format("pim send %d inline comment(s) — optional overall note, <C-s> submit, q cancel", #list),
+    on_submit = function(text)
+      submit(text)
+    end,
+  })
+end
+
+function M.clear_comments()
+  annotations.clear()
+  vim.notify("pim: cleared inline comments", vim.log.levels.INFO)
+end
+
+-- Resolve the active keymap prefix (nil when mappings are disabled).
+local function keymap_prefix()
+  local cfg = state.opts.keymaps
+  if not cfg then
+    return nil
+  end
+  return (type(cfg) == "table" and cfg.prefix) or "<leader>p"
+end
+
+-- Open a buffer listing every pim command, its default mapping, and usage.
+function M.help()
+  return help.open(keymap_prefix())
+end
+
+function M.list_comments()
+  local list = annotations.list()
+  if #list == 0 then
+    vim.notify("pim: no inline comments pending", vim.log.levels.INFO)
+    return
+  end
+  local lines = { string.format("pim inline comments (%d):", #list) }
+  for index, ann in ipairs(list) do
+    local file = ann.file and vim.fn.fnamemodify(ann.file, ":~:.") or "[No file name]"
+    local range = ann.range.start == ann.range.finish
+        and tostring(ann.range.start)
+        or (ann.range.start .. "-" .. ann.range.finish)
+    table.insert(lines, string.format("%d. %s:%s — %s", index, file, range, ann.comment))
+  end
+  vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
 end
 
 function M.transcript_paths()

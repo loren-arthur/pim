@@ -266,6 +266,8 @@ describe("pim public surface", function()
       "bridge_info", "clear_highlights", "next_message", "prev_message",
       "latest", "open_transcript", "reload", "pick_model",
       "edit_model_config", "set_model",
+      "comment", "send_comments", "list_comments", "clear_comments",
+      "help",
     }) do
       assert.is_function(pim[fn], "pim." .. fn .. " should be a function")
     end
