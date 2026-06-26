@@ -89,3 +89,15 @@ end, { desc = "Abort the current pi operation" })
 vim.api.nvim_create_user_command("PimStop", function()
   pim().stop()
 end, { desc = "Stop the pi RPC process" })
+
+vim.api.nvim_create_user_command("PimModel", function()
+  pim().pick_model()
+end, { desc = "Pick the pi model interactively, then reload" })
+
+vim.api.nvim_create_user_command("PimModelEdit", function()
+  pim().edit_model_config()
+end, { desc = "Open pi's model settings file for manual editing" })
+
+vim.api.nvim_create_user_command("PimReload", function()
+  pim().reload()
+end, { desc = "Restart pi (resuming the session) to apply config/model changes" })
