@@ -23,12 +23,23 @@ local function trim_lines(lines)
   return out
 end
 
+local function leave_insert_mode()
+  local mode = vim.api.nvim_get_mode().mode
+  if mode:match("^[iR]") then
+    local esc = vim.api.nvim_replace_termcodes("<C-\\><C-n>", true, false, true)
+    vim.api.nvim_feedkeys(esc, "n", false)
+    pcall(vim.cmd.stopinsert)
+  end
+end
+
 local function close_window()
+  leave_insert_mode()
   if state.winid and vim.api.nvim_win_is_valid(state.winid) then
     vim.api.nvim_win_close(state.winid, true)
   end
   state.winid = nil
   state.bufnr = nil
+  state.on_submit = nil
 end
 
 local function restore_origin()
