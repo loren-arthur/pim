@@ -148,7 +148,8 @@ Goal: expose more Pi RPC capabilities in Neovim.
 
 Ideas:
 
-- Fresh session command. Initial `:PimNewSession [name]` / `:PimOpenFresh [name]` implementation is done.
+- Deterministic workspace resume. Initial per-cwd pinned session file persistence and `:PimSessionInfo` / `:PimForgetSession` implementation is done.
+- Fresh session command. Initial `:PimNewSession [name]` / `:PimOpenFresh [name]` implementation is done; unnamed sessions get generated cwd/timestamp names.
 - Session picker/switcher.
 - Model picker.
 - Compact/summarize controls.

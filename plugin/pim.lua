@@ -33,6 +33,14 @@ end, {
   desc = "Open pim and immediately start a fresh pi session",
 })
 
+vim.api.nvim_create_user_command("PimSessionInfo", function()
+  pim().session_info()
+end, { desc = "Show current and workspace-pinned pim session info" })
+
+vim.api.nvim_create_user_command("PimForgetSession", function()
+  pim().forget_workspace_session()
+end, { desc = "Forget the workspace-pinned pim session" })
+
 vim.api.nvim_create_user_command("PimSend", function(opts)
   pim().send(opts.args)
 end, {

@@ -79,8 +79,10 @@ single-spec invocation pattern.
 - `:PimOpen` — open the conversation pane and start `pi --mode rpc`.
 - `:PimClose` — close the conversation pane.
 - `:PimToggle` — toggle the conversation pane.
-- `:PimNewSession [name]` — start a fresh pi session in the current pim RPC process.
+- `:PimNewSession [name]` — start a fresh pi session in the current pim RPC process. If no name is provided, pim generates one from the cwd and timestamp.
 - `:PimOpenFresh [name]` — open pim and immediately start a fresh pi session.
+- `:PimSessionInfo` — show current and workspace-pinned session metadata.
+- `:PimForgetSession` — forget the workspace-pinned session for the current cwd.
 - `:PimSend [prompt]` — send a prompt. If no prompt is provided, opens the floating composer.
 - `:'<,'>PimSendSelection [comment]` — send selected/ranged text plus optional comment. If no comment is provided, opens the floating selection composer.
 - `:PimCompose` — open a floating markdown composer for a longer prompt (`<C-s>` submits, `q` cancels).
@@ -130,7 +132,8 @@ Implemented:
   - `nvim_get_current_context`
 - Starts `pi --mode rpc` as a Neovim job.
 - Requests and displays Pi RPC session state with `get_state`.
-- Can start a fresh session through Pi RPC `new_session` and optionally name it.
+- Remembers the last session file per workspace under Neovim state and resumes that exact file on next open when `pi_cmd` does not already specify an explicit session mode.
+- Can start a fresh session through Pi RPC `new_session` and optionally name it; unnamed fresh sessions get generated cwd/timestamp names.
 - Parses strict JSONL from pi stdout.
 - Opens a scratch `pim://conversation` buffer in a right-side vertical pane.
 - Adds buffer-local `<leader>j` / `<leader>k` mappings in the conversation buffer for next/previous message navigation.

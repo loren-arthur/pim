@@ -23,6 +23,13 @@ local state = {
     keymaps = {
       prefix = "<leader>p",
     },
+    -- By default, pim remembers the last session file for each cwd and resumes
+    -- that exact file on the next open, unless pi_cmd already contains an
+    -- explicit session choice like --session, --continue, --resume, or
+    --no-session.
+    session = {
+      resume = "workspace",
+    },
   },
   is_streaming = false,
   session_id = nil,
@@ -50,6 +57,90 @@ end
 
 local function merge_opts(opts)
   state.opts = vim.tbl_deep_extend("force", state.opts, opts or {})
+end
+
+local function workspace_key()
+  local cwd = vim.fn.getcwd()
+  local ok, hashed = pcall(vim.fn.sha256, cwd)
+  if ok and hashed and hashed ~= "" then
+    return hashed
+  end
+  local sanitized = cwd:gsub("[^%w%._%-]+", "-"):gsub("%-+", "-")
+  return sanitized ~= "" and sanitized or "unknown"
+end
+
+local function workspace_session_path()
+  return vim.fn.stdpath("state") .. "/pim/workspaces/" .. workspace_key() .. ".json"
+end
+
+local function read_workspace_session()
+  local path = workspace_session_path()
+  if vim.fn.filereadable(path) == 0 then
+    return nil
+  end
+  local ok, content = pcall(function()
+    return table.concat(vim.fn.readfile(path), "\n")
+  end)
+  if not ok or content == "" then
+    return nil
+  end
+  local decoded_ok, decoded = pcall(vim.json.decode, content)
+  if not decoded_ok or type(decoded) ~= "table" then
+    return nil
+  end
+  return decoded
+end
+
+local function write_workspace_session(session)
+  if not session or not session.sessionFile then
+    return
+  end
+  local path = workspace_session_path()
+  vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
+  local payload = {
+    cwd = vim.fn.getcwd(),
+    sessionFile = session.sessionFile,
+    sessionId = session.sessionId,
+    sessionName = session.sessionName,
+    updatedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+  }
+  pcall(vim.fn.writefile, { vim.json.encode(payload) }, path)
+end
+
+local function pi_cmd_has_explicit_session_choice()
+  local cmd = state.opts.pi_cmd or {}
+  for _, arg in ipairs(cmd) do
+    if arg == "--session" or arg == "--continue" or arg == "-c" or arg == "--resume" or arg == "-r"
+      or arg == "--no-session" or arg == "--fork" then
+      return true
+    end
+  end
+  return false
+end
+
+local function startup_session_args()
+  local session_opts = state.opts.session or {}
+  if session_opts.resume == false or session_opts.resume == "none" then
+    return {}
+  end
+  if pi_cmd_has_explicit_session_choice() then
+    return {}
+  end
+
+  local saved = read_workspace_session()
+  if saved and saved.sessionFile and vim.fn.filereadable(saved.sessionFile) == 1 then
+    state.workspace_session_file = saved.sessionFile
+    return { "--session", saved.sessionFile }
+  end
+  return {}
+end
+
+local function default_session_name()
+  local base = vim.fn.fnamemodify(vim.fn.getcwd(), ":t")
+  if base == "" then
+    base = "pim"
+  end
+  return string.format("%s %s", base, os.date("%Y-%m-%d %H:%M"))
 end
 
 local function prepare_bridge()
@@ -89,6 +180,8 @@ local function render_session_state(data)
   local changed = state.session_id ~= session_id
   state.session_id = session_id
   state.session_file = data.sessionFile
+  state.session_name = data.sessionName
+  write_workspace_session(data)
   transcript.attach_session(data)
   if changed then
     local lines = transcript.read_markdown_lines()
@@ -371,12 +464,15 @@ end
 
 function M.open()
   buffer.open()
-  rpc.start()
+  rpc.start(startup_session_args())
   rpc.get_state()
 end
 
 function M.new_session(name)
   buffer.open({ focus = false })
+  if not name or name == "" then
+    name = default_session_name()
+  end
   state.pending_new_session_name = name
   buffer.append_line("pim starting a fresh pi session…")
   transcript.append_markdown("\npim starting a fresh pi session…\n")
@@ -514,6 +610,31 @@ end
 
 function M.latest()
   buffer.latest()
+end
+
+function M.session_info()
+  local saved = read_workspace_session()
+  local lines = {
+    "Current pi session:",
+    "  name: " .. tostring(state.session_name or ""),
+    "  id: " .. tostring(state.session_id or ""),
+    "  file: " .. tostring(state.session_file or ""),
+    "Workspace pinned session:",
+    "  file: " .. tostring(saved and saved.sessionFile or ""),
+    "  name: " .. tostring(saved and saved.sessionName or ""),
+  }
+  local text = table.concat(lines, "\n")
+  buffer.append_block("pim session", text)
+  vim.notify(text, vim.log.levels.INFO, { title = "pim session" })
+end
+
+function M.forget_workspace_session()
+  local path = workspace_session_path()
+  if vim.fn.filereadable(path) == 1 then
+    vim.fn.delete(path)
+  end
+  state.workspace_session_file = nil
+  vim.notify("forgot pim workspace session", vim.log.levels.INFO, { title = "pim" })
 end
 
 function M.open_transcript()
