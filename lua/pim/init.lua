@@ -1,5 +1,6 @@
 local bridge = require("pim.bridge")
 local buffer = require("pim.buffer")
+local composer = require("pim.composer")
 local context = require("pim.context")
 local rpc = require("pim.rpc")
 local settings_editor = require("pim.settings_editor")
@@ -317,6 +318,8 @@ local function apply_keymaps(cfg)
   map("n", "p", function() M.toggle() end, "toggle conversation pane")
   map("n", "s", function() M.send() end, "send a prompt")
   map("x", "s", ":PimSendSelection<CR>", "send selection")
+  map("n", "c", function() M.compose() end, "compose prompt")
+  map("x", "c", ":PimComposeSelection<CR>", "compose with selection")
   map("n", "S", function() M.steer() end, "steer")
   map("n", "f", function() M.follow_up() end, "follow up")
   map("n", "m", function() M.pick_model() end, "pick model")
@@ -380,13 +383,32 @@ local function send_prompt_with_behavior(message, behavior)
   end
 end
 
+function M.compose(opts)
+  opts = opts or {}
+  composer.open({
+    title = opts.title or "pim compose — <C-s> submit, q cancel",
+    initial = opts.initial,
+    on_submit = function(text)
+      send_prompt_with_behavior(text, opts.behavior or (state.is_streaming and state.opts.streaming_behavior or nil))
+    end,
+  })
+end
+
+function M.compose_selection(opts)
+  opts = opts or {}
+  local ctx = context.range({ line1 = opts.line1, line2 = opts.line2 })
+  composer.open({
+    title = opts.title or "pim selection comment — <C-s> submit, q cancel",
+    on_submit = function(comment)
+      local prompt = context.prompt_for_range(comment, ctx)
+      send_prompt_with_behavior(prompt, state.is_streaming and state.opts.streaming_behavior or nil)
+    end,
+  })
+end
+
 function M.send(message)
   if not message or message == "" then
-    vim.ui.input({ prompt = "pim> " }, function(input)
-      if input and input ~= "" then
-        M.send(input)
-      end
-    end)
+    M.compose()
     return
   end
 
@@ -395,11 +417,7 @@ end
 
 function M.steer(message)
   if not message or message == "" then
-    vim.ui.input({ prompt = "pim steer> " }, function(input)
-      if input and input ~= "" then
-        M.steer(input)
-      end
-    end)
+    M.compose({ title = "pim steer — <C-s> submit, q cancel", behavior = "steer" })
     return
   end
   send_prompt_with_behavior(message, "steer")
@@ -407,11 +425,7 @@ end
 
 function M.follow_up(message)
   if not message or message == "" then
-    vim.ui.input({ prompt = "pim follow-up> " }, function(input)
-      if input and input ~= "" then
-        M.follow_up(input)
-      end
-    end)
+    M.compose({ title = "pim follow-up — <C-s> submit, q cancel", behavior = "followUp" })
     return
   end
   send_prompt_with_behavior(message, "followUp")
@@ -431,9 +445,7 @@ function M.send_selection(opts)
     return
   end
 
-  vim.ui.input({ prompt = "pim comment for selection> " }, function(input)
-    submit(input or "")
-  end)
+  M.compose_selection({ line1 = opts.line1, line2 = opts.line2 })
 end
 
 function M.send_buffer(comment)

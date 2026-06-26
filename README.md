@@ -79,8 +79,10 @@ single-spec invocation pattern.
 - `:PimOpen` — open the conversation pane and start `pi --mode rpc`.
 - `:PimClose` — close the conversation pane.
 - `:PimToggle` — toggle the conversation pane.
-- `:PimSend [prompt]` — send a prompt. If no prompt is provided, asks via `vim.ui.input`.
-- `:'<,'>PimSendSelection [comment]` — send selected/ranged text plus optional comment.
+- `:PimSend [prompt]` — send a prompt. If no prompt is provided, opens the floating composer.
+- `:'<,'>PimSendSelection [comment]` — send selected/ranged text plus optional comment. If no comment is provided, opens the floating selection composer.
+- `:PimCompose` — open a floating markdown composer for a longer prompt (`<C-s>` submits, `q` cancels).
+- `:'<,'>PimComposeSelection` — open a floating composer for a comment on the selected/ranged text.
 - `:PimSteer [prompt]` — explicitly queue a steering message while pi is processing.
 - `:PimFollowUp [prompt]` — explicitly queue a follow-up message after pi finishes current work.
 - `:PimTranscript` — open the durable markdown transcript.
@@ -137,6 +139,7 @@ Implemented:
 - Rehydrates the conversation pane from the markdown transcript when reattaching to the same session.
 - Displays tool start/end events with concise argument context.
 - Sends plain prompts.
+- Opens a floating composer buffer for longer prompts and selected-range comments.
 - Automatically sends new prompts/ranges as steering messages when pi is already processing, avoiding Pi RPC's `Agent is already processing` error.
 - Supports explicit `:PimSteer` and `:PimFollowUp` commands.
 - Sends selected ranges with:
@@ -154,7 +157,6 @@ Not implemented yet:
 - Session/model controls.
 - Extension UI request handling.
 - Inline persistent annotations/extmarks.
-- Floating composer buffer.
 - Rich UI for choosing steer vs follow-up per message.
 - Tests.
 
@@ -169,6 +171,7 @@ plugin/pim.lua          command definitions
 lua/pim/init.lua        public API and event routing
 lua/pim/rpc.lua         pi RPC subprocess + JSONL client
 lua/pim/buffer.lua      conversation buffer/pane rendering
+lua/pim/composer.lua    floating prompt/comment composer
 lua/pim/context.lua     file/range/diagnostic context formatting
 lua/pim/bridge.lua      local Neovim TCP bridge and editor-control methods
 lua/pim/transcript.lua  durable markdown transcript and raw JSONL event log

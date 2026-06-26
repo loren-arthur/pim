@@ -135,7 +135,9 @@ Goal: let the user write richer prompts/comments in real buffers.
 
 Ideas:
 
-- Floating composer buffer for long prompts.
+> Loren note: prioritize the composer first. It should improve `:PimSend`, `:PimSendSelection`, longer steering/follow-up messages, and become the base for inline-comment workflows.
+
+- Floating composer buffer for long prompts. Initial `:PimCompose` and `:PimComposeSelection` implementation is done.
 - Inline annotations attached to code ranges via extmarks.
 - Commands to collect annotations and send them as structured context.
 - Buffer-local mappings for “send this comment/range to pim”.

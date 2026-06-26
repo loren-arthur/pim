@@ -38,6 +38,20 @@ end, {
   desc = "Send selected/ranged text with an optional comment to pi",
 })
 
+vim.api.nvim_create_user_command("PimCompose", function()
+  pim().compose()
+end, { desc = "Open a floating pim prompt composer" })
+
+vim.api.nvim_create_user_command("PimComposeSelection", function(opts)
+  pim().compose_selection({
+    line1 = opts.line1,
+    line2 = opts.line2,
+  })
+end, {
+  range = true,
+  desc = "Open a floating pim composer for selected/ranged text",
+})
+
 vim.api.nvim_create_user_command("PimSteer", function(opts)
   pim().steer(opts.args)
 end, {
