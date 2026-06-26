@@ -1,5 +1,7 @@
 local M = {}
 
+local jsonl = require("pim.jsonl")
+
 local state = {
   job_id = nil,
   next_id = 1,
@@ -22,32 +24,13 @@ local function emit(event)
   end
 end
 
-local function handle_line(line)
-  if line == "" then
-    return
-  end
-  local ok, decoded = pcall(vim.json.decode, line)
-  if not ok then
-    emit({ type = "pim_parse_error", line = line, error = decoded })
-    return
-  end
-  emit(decoded)
-end
-
 local function consume_stdout(chunk)
-  state.stdout_pending = state.stdout_pending .. chunk
-  while true do
-    local newline = state.stdout_pending:find("\n", 1, true)
-    if not newline then
-      break
-    end
-    local line = state.stdout_pending:sub(1, newline - 1)
-    state.stdout_pending = state.stdout_pending:sub(newline + 1)
-    if line:sub(-1) == "\r" then
-      line = line:sub(1, -2)
-    end
-    handle_line(line)
-  end
+  jsonl.consume_chunk(
+    function() return state.stdout_pending end,
+    function(p) state.stdout_pending = p end,
+    chunk,
+    function(event) emit(event) end
+  )
 end
 
 function M.setup(opts)
@@ -59,13 +42,19 @@ function M.is_running()
   return state.job_id ~= nil
 end
 
-function M.start()
+function M.start(extra_args)
   if state.job_id then
     return state.job_id
   end
 
-  local cmd = state.opts.pi_cmd or { "pi", "--mode", "rpc" }
+  local cmd = vim.deepcopy(state.opts.pi_cmd or { "pi", "--mode", "rpc" })
+  if extra_args and #extra_args > 0 then
+    vim.list_extend(cmd, extra_args)
+  end
   state.stdout_pending = ""
+  -- Identity for this specific process so a late on_exit (e.g. from a process
+  -- replaced by reload) cannot clear a newer job handle.
+  local handle = {}
   state.job_id = vim.fn.jobstart(cmd, {
     stdin = "pipe",
     env = state.opts.env,
@@ -87,11 +76,13 @@ function M.start()
       end
     end,
     on_exit = function(_, code, signal)
-      local old = state.job_id
-      state.job_id = nil
-      emit({ type = "pim_exit", job_id = old, code = code, signal = signal })
+      if state.job_id == handle.id then
+        state.job_id = nil
+      end
+      emit({ type = "pim_exit", job_id = handle.id, code = code, signal = signal })
     end,
   })
+  handle.id = state.job_id
 
   if state.job_id <= 0 then
     local failed = state.job_id

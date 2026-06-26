@@ -53,6 +53,27 @@ nvim --clean \
   +'lua require("pim").setup()'
 ```
 
+## Running the tests
+
+The repo ships with a 98-test plenary suite under `tests/`. Install
+`plenary.nvim` somewhere on your runtime path:
+
+```bash
+mkdir -p ~/.local/share/nvim/site/pack/local/start
+git clone --depth 1 https://github.com/nvim-lua/plenary.nvim \
+  ~/.local/share/nvim/site/pack/local/start/plenary.nvim
+```
+
+Then, from the repo root:
+
+```bash
+nvim --headless -u tests/minimal_init.lua \
+  -c "PlenaryBustedDirectory tests/spec {minimal_init = 'tests/minimal_init.lua'}"
+```
+
+See [`tests/README.md`](tests/README.md) for the per-spec layout and a
+single-spec invocation pattern.
+
 ## Commands
 
 - `:PimOpen` — open the conversation pane and start `pi --mode rpc`.
@@ -71,6 +92,25 @@ nvim --clean \
 - `:PimLatest` — jump to the latest conversation line.
 - `:PimAbort` — send RPC abort.
 - `:PimStop` — stop the pi RPC subprocess.
+- `:PimModel` — interactively pick the pi model (via `vim.ui.select`, so telescope/fzf/snacks themes apply); the choice is written to settings and pi reloads. The current model is marked.
+- `:PimModelEdit` — open pi's model settings file (`~/.pi/agent/settings.json`) for manual editing.
+- `:PimReload` — restart pi (resuming the current session) so edited config/model settings take effect.
+
+## Keymaps
+
+Default keymaps are created under a `<leader>p` prefix (set `keymaps = false` in
+`setup` to disable, or `keymaps = { prefix = "<leader>x" }` to change it). Make
+sure `mapleader` is set before `setup` runs.
+
+- `<leader>pp` — toggle the conversation pane.
+- `<leader>ps` — send a prompt (normal) / send the selection (visual).
+- `<leader>pS` — steer.
+- `<leader>pf` — follow up.
+- `<leader>pm` — pick the model.
+- `<leader>pr` — reload pi.
+- `<leader>pa` — abort.
+- `<leader>px` — stop pi.
+- `<leader>pt` — open the transcript.
 
 ## Current prototype behavior
 

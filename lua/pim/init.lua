@@ -2,6 +2,7 @@ local bridge = require("pim.bridge")
 local buffer = require("pim.buffer")
 local context = require("pim.context")
 local rpc = require("pim.rpc")
+local settings_editor = require("pim.settings_editor")
 local transcript = require("pim.transcript")
 
 local M = {}
@@ -16,6 +17,11 @@ local state = {
     -- message by default. Pi RPC requires an explicit streamingBehavior in
     -- this state; without it, it returns "Agent is already processing".
     streaming_behavior = "steer",
+    -- Default keymaps under a prefix. Set `keymaps = false` to disable, or
+    -- override `keymaps.prefix`.
+    keymaps = {
+      prefix = "<leader>p",
+    },
   },
   is_streaming = false,
   session_id = nil,
@@ -79,6 +85,7 @@ local function render_session_state(data)
   local session_id = tostring(data.sessionId or data.sessionFile or "unknown")
   local changed = state.session_id ~= session_id
   state.session_id = session_id
+  state.session_file = data.sessionFile
   transcript.attach_session(data)
   if changed then
     local lines = transcript.read_markdown_lines()
@@ -242,6 +249,15 @@ local function handle_event(event)
   if event.type == "message_end" then
     if event.message and event.message.role == "assistant" then
       state.assistant_open_in_transcript = false
+      -- Surface model/provider errors (e.g. a 400) instead of going silently
+      -- idle with an empty assistant message.
+      local err = event.message.errorMessage
+      if (err and err ~= "") or event.message.stopReason == "error" then
+        local detail = err or "model returned an error"
+        local model = event.message.model and (" [" .. tostring(event.message.model) .. "]") or ""
+        buffer.append_block("pi error" .. model, detail)
+        transcript.append_block("pi error" .. model, detail)
+      end
       buffer.finish_assistant_message()
     end
     return
@@ -287,6 +303,29 @@ local function handle_event(event)
   end
 end
 
+-- Global keymaps under a configurable prefix (default `<leader>p`). Disabled by
+-- `keymaps = false`.
+local function apply_keymaps(cfg)
+  if not cfg then
+    return
+  end
+  local prefix = (type(cfg) == "table" and cfg.prefix) or "<leader>p"
+  local function map(mode, suffix, rhs, desc)
+    vim.keymap.set(mode, prefix .. suffix, rhs, { desc = "pim: " .. desc, silent = true })
+  end
+
+  map("n", "p", function() M.toggle() end, "toggle conversation pane")
+  map("n", "s", function() M.send() end, "send a prompt")
+  map("x", "s", ":PimSendSelection<CR>", "send selection")
+  map("n", "S", function() M.steer() end, "steer")
+  map("n", "f", function() M.follow_up() end, "follow up")
+  map("n", "m", function() M.pick_model() end, "pick model")
+  map("n", "r", function() M.reload() end, "reload pi")
+  map("n", "a", function() M.abort() end, "abort")
+  map("n", "x", function() M.stop() end, "stop pi")
+  map("n", "t", function() M.open_transcript() end, "open transcript")
+end
+
 function M.setup(opts)
   merge_opts(opts)
   prepare_bridge()
@@ -299,6 +338,7 @@ function M.setup(opts)
     env = state.opts.env,
     on_event = handle_event,
   })
+  apply_keymaps(state.opts.keymaps)
 end
 
 function M.open()
@@ -429,6 +469,213 @@ end
 function M.open_transcript()
   local paths = transcript.paths()
   vim.cmd.edit(vim.fn.fnameescape(paths.markdown))
+end
+
+local function pi_config_dir()
+  return vim.fn.expand(state.opts.pi_config_dir or "~/.pi/agent")
+end
+
+-- Collect available models from pi's models.json as rich entries
+-- ({provider, id, key="provider/id", label}).
+local function model_entries(models_path)
+  local read_ok, content = pcall(function()
+    return table.concat(vim.fn.readfile(models_path), "\n")
+  end)
+  if not read_ok then
+    return {}
+  end
+  local decode_ok, decoded = pcall(vim.json.decode, content)
+  if not decode_ok or type(decoded) ~= "table" or type(decoded.providers) ~= "table" then
+    return {}
+  end
+  local out = {}
+  for provider, pdata in pairs(decoded.providers) do
+    if type(pdata) == "table" and type(pdata.models) == "table" then
+      for _, model in ipairs(pdata.models) do
+        if type(model) == "table" and model.id then
+          local key = provider .. "/" .. tostring(model.id)
+          local label = key
+          if model.name then
+            label = label .. "  (" .. tostring(model.name) .. ")"
+          end
+          table.insert(out, {
+            provider = provider,
+            id = tostring(model.id),
+            key = key,
+            label = label,
+          })
+        end
+      end
+    end
+  end
+  table.sort(out, function(a, b)
+    return a.key < b.key
+  end)
+  return out
+end
+
+local function available_models(models_path)
+  return vim.tbl_map(function(entry)
+    return entry.key
+  end, model_entries(models_path))
+end
+
+-- Open pi's settings, jump to the model fields, and surface the valid values.
+function M.edit_model_config()
+  local dir = pi_config_dir()
+  local settings = dir .. "/settings.json"
+  if vim.fn.filereadable(settings) == 0 then
+    vim.notify("pi settings not found at " .. settings, vim.log.levels.WARN, { title = "pim" })
+    return
+  end
+
+  vim.cmd.edit(vim.fn.fnameescape(settings))
+  vim.fn.cursor(1, 1)
+  if vim.fn.search([["defaultModel"]], "cw") == 0 then
+    vim.fn.search([["defaultProvider"]], "cw")
+  end
+
+  local hint = 'Edit "defaultProvider" / "defaultModel", then :PimReload to apply.'
+  local models = available_models(dir .. "/models.json")
+  if #models > 0 then
+    hint = hint .. "\nAvailable: " .. table.concat(models, ", ")
+  end
+  vim.notify(hint, vim.log.levels.INFO, { title = "pim" })
+end
+
+local function settings_table()
+  local read_ok, content = pcall(function()
+    return table.concat(vim.fn.readfile(pi_config_dir() .. "/settings.json"), "\n")
+  end)
+  if not read_ok then
+    return {}
+  end
+  local decode_ok, settings = pcall(vim.json.decode, content)
+  if not decode_ok or type(settings) ~= "table" then
+    return {}
+  end
+  return settings
+end
+
+-- Restart pi so configuration/model changes take effect. The current provider
+-- and model are read from settings and passed explicitly so a resumed session
+-- actually adopts the new model rather than keeping its old one; the session is
+-- resumed so the conversation is preserved.
+function M.reload()
+  local args = {}
+  local settings = settings_table()
+  if settings.defaultProvider then
+    vim.list_extend(args, { "--provider", tostring(settings.defaultProvider) })
+  end
+  if settings.defaultModel then
+    vim.list_extend(args, { "--model", tostring(settings.defaultModel) })
+  end
+  if settings.defaultThinkingLevel then
+    vim.list_extend(args, { "--thinking", tostring(settings.defaultThinkingLevel) })
+  end
+  if state.session_file then
+    vim.list_extend(args, { "--session", tostring(state.session_file) })
+  end
+
+  buffer.open({ focus = false })
+  local applied = settings.defaultModel and (" → " .. tostring(settings.defaultModel)) or ""
+  buffer.append_line("↻ reloading pi" .. applied .. "…")
+  transcript.append_markdown("\n↻ reloading pi" .. applied .. "…\n")
+
+  rpc.stop()
+  -- Surface that we are actively waiting for the old process to release the
+  -- session file and for the new one to come up, instead of leaving the
+  -- previous "pi working…" spinner stale across the gap.
+  buffer.start_working("reloading pi" .. applied .. "…")
+  state.is_streaming = false
+  state.assistant_open_in_transcript = false
+
+  -- Let the old process exit and release the session file before resuming it.
+  vim.defer_fn(function()
+    rpc.start(args)
+    rpc.get_state()
+  end, 200)
+end
+
+-- Forward to the in-place editor module so tests can call it directly
+-- without going through the public API; behavior and tests live in
+-- lua/pim/settings_editor.lua.
+local update_string_setting = settings_editor.update_string_setting
+local insert_string_setting = settings_editor.insert_string_setting
+
+-- Persist a provider/model choice to pi's settings and reload so it takes
+-- effect. Edits the file in-place so unrelated formatting (nested objects,
+-- key ordering, indentation) is preserved.
+function M.set_model(provider, model)
+  local path = pi_config_dir() .. "/settings.json"
+  local read_ok, content = pcall(function()
+    return table.concat(vim.fn.readfile(path), "\n")
+  end)
+  if not read_ok then
+    vim.notify("pim: failed to read " .. path, vim.log.levels.ERROR, { title = "pim" })
+    return
+  end
+
+  local updated = content
+  local p_found
+  updated, p_found = update_string_setting(updated, "defaultProvider", provider)
+  if not p_found then
+    updated, _ = insert_string_setting(updated, "defaultProvider", provider)
+  end
+  local m_found
+  updated, m_found = update_string_setting(updated, "defaultModel", model)
+  if not m_found then
+    updated, _ = insert_string_setting(updated, "defaultModel", model)
+  end
+
+  local write_ok = pcall(vim.fn.writefile, vim.split(updated, "\n"), path)
+  if not write_ok then
+    vim.notify("pim: failed to write " .. path, vim.log.levels.ERROR, { title = "pim" })
+    return
+  end
+  vim.notify(
+    "pi model → " .. provider .. "/" .. model .. " (reloading…)",
+    vim.log.levels.INFO,
+    { title = "pim" }
+  )
+  M.reload()
+end
+
+-- Interactive model picker. Uses vim.ui.select, so it respects telescope/fzf/
+-- snacks if the user has themed it; the current model is marked.
+function M.pick_model()
+  local entries = model_entries(pi_config_dir() .. "/models.json")
+  if #entries == 0 then
+    vim.notify(
+      "pim: no models found in " .. pi_config_dir() .. "/models.json",
+      vim.log.levels.WARN,
+      { title = "pim" }
+    )
+    return
+  end
+
+  local settings = settings_table()
+  local current
+  if settings.defaultProvider and settings.defaultModel then
+    current = settings.defaultProvider .. "/" .. settings.defaultModel
+  end
+
+  vim.ui.select(entries, {
+    prompt = "pim: select pi model",
+    format_item = function(entry)
+      local marker = entry.key == current and "● " or "  "
+      return marker .. entry.label
+    end,
+  }, function(choice)
+    if not choice then
+      return
+    end
+    if choice.key == current then
+      vim.notify("pi model unchanged (" .. choice.key .. ")", vim.log.levels.INFO, { title = "pim" })
+      return
+    end
+    M.set_model(choice.provider, choice.id)
+  end)
 end
 
 return M
