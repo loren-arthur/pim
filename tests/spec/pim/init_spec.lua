@@ -274,12 +274,275 @@ describe("pim public surface", function()
   end)
 
   it("pick_model is a no-op when models.json is missing", function()
-    -- Point pi_config_dir at an empty tmpdir that has no models.json;
+    -- Point pi_config_dir at an empty tmpdir that has no models.json, and
+    -- stub out the fallback `pi --list-models` call so it returns nothing.
     -- pick_model should then notify and exit without invoking vim.ui.select
     -- (which would otherwise hang in headless mode since there's no UI to
     -- read from).
+    local orig_systemlist = vim.fn.systemlist
+    vim.fn.systemlist = function() return {} end
     local pim = require("pim")
     pim.setup({ keymaps = false, pi_config_dir = tmpdir })
     assert.has_no.errors(function() pim.pick_model() end)
+    vim.fn.systemlist = orig_systemlist
+  end)
+end)
+
+describe("pim.pick_model", function()
+  local tmpdir
+  local orig_ui_select
+  local orig_systemlist
+  before_each(function()
+    tmpdir = vim.fn.tempname()
+    vim.fn.mkdir(tmpdir, "p")
+    reset_state(tmpdir)
+    orig_ui_select = vim.ui.select
+    orig_systemlist = vim.fn.systemlist
+  end)
+  after_each(function()
+    vim.ui.select = orig_ui_select
+    vim.fn.systemlist = orig_systemlist
+    if tmpdir then vim.fn.delete(tmpdir, "rf") end
+    tmpdir = nil
+  end)
+
+  it("merges models.json with pi --list-models", function()
+    local models_json = vim.json.encode({
+      providers = {
+        custom = {
+          models = {
+            { id = "custom-model", name = "Custom Model" },
+          },
+        },
+      },
+    })
+    vim.fn.writefile(vim.split(models_json, "\n"), tmpdir .. "/models.json")
+
+    -- Replace the real pi executable with a tiny script that prints a stable
+    -- --list-models table, so the test does not depend on what is installed.
+    local fake_pi = tmpdir .. "/fake_pi"
+    vim.fn.writefile({
+      "#!/bin/sh",
+      'if [ "$1" = "--list-models" ]; then',
+      '  echo "provider   model"',
+      '  echo "openai     gpt-5"',
+      '  echo "anthropic  claude-sonnet-4"',
+      "fi",
+    }, fake_pi)
+    vim.fn.setfperm(fake_pi, "rwxr--r--")
+
+    local choices = nil
+    vim.ui.select = function(items, _, _)
+      choices = items
+    end
+
+    local pim = require("pim")
+    pim.setup({ keymaps = false, pi_config_dir = tmpdir, pi_cmd = { fake_pi } })
+    pim.pick_model()
+
+    assert.is_not_nil(choices)
+    local keys = {}
+    for _, c in ipairs(choices) do
+      keys[c.key] = true
+    end
+    assert.is_true(keys["custom/custom-model"], "expected models.json entry")
+    assert.is_true(keys["openai/gpt-5"], "expected pi --list-models entry")
+    assert.is_true(keys["anthropic/claude-sonnet-4"], "expected pi --list-models entry")
+  end)
+end)
+
+describe("pim.open_select", function()
+  local tmpdir
+  local orig_cwd
+  local orig_ui_select
+  local workspace_path
+  before_each(function()
+    tmpdir = vim.fn.tempname()
+    vim.fn.mkdir(tmpdir, "p")
+    reset_state(tmpdir)
+    orig_cwd = vim.fn.getcwd()
+    orig_ui_select = vim.ui.select
+
+    local cwd = tmpdir .. "/cwd"
+    vim.fn.mkdir(cwd, "p")
+    vim.cmd("cd " .. cwd)
+    workspace_path = vim.fn.stdpath("state") .. "/pim/workspaces/" .. vim.fn.sha256(cwd) .. ".json"
+  end)
+  after_each(function()
+    vim.ui.select = orig_ui_select
+    vim.cmd("cd " .. orig_cwd)
+    if workspace_path and vim.fn.filereadable(workspace_path) == 1 then
+      vim.fn.delete(workspace_path)
+    end
+    if tmpdir then vim.fn.delete(tmpdir, "rf") end
+    tmpdir = nil
+    workspace_path = nil
+  end)
+
+  it("finds sessions from the pinned session's directory", function()
+    local cwd = vim.fn.getcwd()
+
+    local function session_dir_for(path)
+      local normalized = vim.fn.fnamemodify(path, ":p"):gsub("[/\\]$", "")
+      local safe = "--" .. normalized:gsub("^[/\\]", ""):gsub("[/\\:]", "-") .. "--"
+      return tmpdir .. "/sessions/" .. safe
+    end
+
+    local cwd_dir = session_dir_for(cwd)
+    local other_dir = tmpdir .. "/sessions/--other--"
+    vim.fn.mkdir(cwd_dir, "p")
+    vim.fn.mkdir(other_dir, "p")
+
+    local current_session = cwd_dir .. "/current.jsonl"
+    local other_session = other_dir .. "/other.jsonl"
+    local user_line = '{"type":"message","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}'
+    vim.fn.writefile({ user_line }, current_session)
+    vim.fn.writefile({ user_line }, other_session)
+
+    -- Pin a workspace session that lives in the "other" directory, simulating
+    -- a session started under a different cwd and then switched to.
+    vim.fn.mkdir(vim.fn.fnamemodify(workspace_path, ":h"), "p")
+    vim.fn.writefile({ vim.json.encode({
+      sessionFile = other_session,
+      sessionId = "other",
+      sessionName = "other session",
+    }) }, workspace_path)
+
+    local choices = nil
+    vim.ui.select = function(items, _, _)
+      choices = items
+    end
+
+    local pim = require("pim")
+    pim.setup({ keymaps = false, pi_config_dir = tmpdir })
+    pim.open_select()
+
+    assert.is_not_nil(choices)
+    local found_current = false
+    local found_other = false
+    for _, c in ipairs(choices) do
+      if c.kind == "session" and c.path == current_session then
+        found_current = true
+      end
+      if c.kind == "session" and c.path == other_session then
+        found_other = true
+      end
+    end
+    assert.is_true(found_current, "expected session from current cwd dir")
+    assert.is_true(found_other, "expected session from pinned session dir")
+  end)
+end)
+
+describe("pim.compact", function()
+  local tmpdir
+  local rpc_stub
+  local buffer_stub
+  local on_event
+
+  before_each(function()
+    tmpdir = vim.fn.tempname()
+    vim.fn.mkdir(tmpdir, "p")
+    reset_state(tmpdir)
+
+    rpc_stub = {
+      setup = function(opts)
+        on_event = opts.on_event
+      end,
+      start = function() return 1 end,
+      stop = function() end,
+      send = function(cmd)
+        rpc_stub.last_sent = cmd
+        return "id"
+      end,
+      prompt = function() end,
+      steer = function() end,
+      follow_up = function() end,
+      get_state = function() end,
+      abort = function() end,
+      is_running = function() return false end,
+    }
+
+    buffer_stub = {
+      setup = function() end,
+      ensure = function() return -1 end,
+      open = function() end,
+      close = function() end,
+      append_line = function(line) table.insert(buffer_stub.lines, line) end,
+      append_block = function(title, text) table.insert(buffer_stub.blocks, { title = title, text = text }) end,
+      append_delta = function() end,
+      start_working = function() end,
+      stop_working = function() end,
+      latest = function() end,
+      next_message = function() end,
+      prev_message = function() end,
+      finish_assistant_message = function() end,
+      set_lines = function() end,
+      start_assistant_message = function() end,
+      set_footer = function() end,
+    }
+    buffer_stub.lines = {}
+    buffer_stub.blocks = {}
+
+    package.loaded["pim.rpc"] = rpc_stub
+    package.loaded["pim.buffer"] = buffer_stub
+    package.loaded["pim"] = nil
+  end)
+
+  after_each(function()
+    if tmpdir then vim.fn.delete(tmpdir, "rf") end
+    tmpdir = nil
+  end)
+
+  it("sends a compact command", function()
+    local pim = require("pim")
+    pim.setup({ keymaps = false, pi_config_dir = tmpdir })
+    pim.compact()
+    assert.are.same({ type = "compact" }, rpc_stub.last_sent)
+    assert.is_true(vim.tbl_contains(buffer_stub.lines, "pim compacting context…"))
+  end)
+
+  it("sends custom instructions", function()
+    local pim = require("pim")
+    pim.setup({ keymaps = false, pi_config_dir = tmpdir })
+    pim.compact("Focus on code changes")
+    assert.are.same({ type = "compact", customInstructions = "Focus on code changes" }, rpc_stub.last_sent)
+  end)
+
+  it("toggles and sends set_auto_compaction", function()
+    local pim = require("pim")
+    pim.setup({ keymaps = false, pi_config_dir = tmpdir })
+    pim.set_auto_compaction()
+    assert.are.same({ type = "set_auto_compaction", enabled = true }, rpc_stub.last_sent)
+    assert.is_true(vim.tbl_contains(buffer_stub.lines, "pim auto-compaction: on"))
+
+    pim.set_auto_compaction()
+    assert.are.same({ type = "set_auto_compaction", enabled = false }, rpc_stub.last_sent)
+    assert.is_true(vim.tbl_contains(buffer_stub.lines, "pim auto-compaction: off"))
+  end)
+
+  it("renders compaction events in the buffer", function()
+    local pim = require("pim")
+    pim.setup({ keymaps = false, pi_config_dir = tmpdir })
+    on_event({ type = "compaction_start", reason = "manual" })
+    assert.is_true(vim.tbl_contains(buffer_stub.lines, "pi compacting context… (manual)"))
+
+    on_event({
+      type = "compaction_end",
+      reason = "manual",
+      result = {
+        summary = "Summary",
+        tokensBefore = 150000,
+        estimatedTokensAfter = 32000,
+      },
+      aborted = false,
+      willRetry = false,
+    })
+    local found = false
+    for _, b in ipairs(buffer_stub.blocks) do
+      if b.title == "pi compaction" and b.text:find("compacted 150000 → 32000") then
+        found = true
+      end
+    end
+    assert.is_true(found)
   end)
 end)

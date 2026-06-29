@@ -169,6 +169,33 @@ vim.api.nvim_create_user_command("PimReload", function()
   pim().reload()
 end, { desc = "Restart pi (resuming the session) to apply config/model changes" })
 
+vim.api.nvim_create_user_command("PimCompact", function(opts)
+  pim().compact(opts.args)
+end, {
+  nargs = "*",
+  desc = "Compact conversation context; optional custom instructions focus the summary",
+})
+
+vim.api.nvim_create_user_command("PimAutoCompact", function(opts)
+  local arg = opts.args:lower()
+  local enabled
+  if arg == "" or arg == "toggle" then
+    enabled = nil
+  elseif arg == "on" or arg == "true" or arg == "1" then
+    enabled = true
+  elseif arg == "off" or arg == "false" or arg == "0" then
+    enabled = false
+  else
+    vim.notify("pim: PimAutoCompact expects on/off/toggle, got " .. opts.args, vim.log.levels.WARN)
+    return
+  end
+  pim().set_auto_compaction(enabled)
+end, {
+  nargs = "?",
+  complete = function() return { "on", "off", "toggle" } end,
+  desc = "Toggle or set pi automatic context compaction",
+})
+
 vim.api.nvim_create_user_command("PimHelp", function()
   pim().help()
 end, { desc = "Show a buffer listing all pim commands and their usage" })

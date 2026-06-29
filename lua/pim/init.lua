@@ -32,12 +32,20 @@ local state = {
     session = {
       resume = "workspace",
     },
+    -- Render thinking/reasoning content streamed by the model. Set to false
+    -- to keep the conversation pane free of hidden-chain-of-thought text.
+    show_thinking = true,
   },
   is_streaming = false,
   session_id = nil,
   session_file = nil,
   pending_new_session_name = nil,
   assistant_open_in_transcript = false,
+  -- Last observed model and usage, surfaced in the conversation footer.
+  model = nil,
+  usage = nil,
+  -- In-memory toggle for PimAutoCompact (pi does not expose a readback).
+  auto_compaction = false,
 }
 
 local function plugin_root()
@@ -191,10 +199,43 @@ local function session_summary(path)
   return session
 end
 
+local function session_dirs()
+  local dirs = {}
+  local function add(path)
+    if not path or path == "" or vim.fn.isdirectory(path) ~= 1 then
+      return
+    end
+    for _, existing in ipairs(dirs) do
+      if existing == path then
+        return
+      end
+    end
+    table.insert(dirs, path)
+  end
+
+  add(pi_session_dir_for_cwd())
+  if state.session_file and state.session_file ~= "" then
+    add(vim.fn.fnamemodify(state.session_file, ":h"))
+  end
+  local pinned = read_workspace_session()
+  if pinned and pinned.sessionFile and pinned.sessionFile ~= "" then
+    add(vim.fn.fnamemodify(pinned.sessionFile, ":h"))
+  end
+  return dirs
+end
+
 local function workspace_sessions(limit)
   limit = limit or 20
-  local dir = pi_session_dir_for_cwd()
-  local files = vim.fn.globpath(dir, "*.jsonl", false, true)
+  local seen = {}
+  local files = {}
+  for _, dir in ipairs(session_dirs()) do
+    for _, path in ipairs(vim.fn.globpath(dir, "*.jsonl", false, true)) do
+      if not seen[path] then
+        seen[path] = true
+        table.insert(files, path)
+      end
+    end
+  end
   table.sort(files, function(a, b)
     return vim.fn.getftime(a) > vim.fn.getftime(b)
   end)
@@ -384,11 +425,58 @@ local function append_tool_lines(lines)
   transcript.append_markdown("\n" .. table.concat(lines, "\n") .. "\n")
 end
 
+-- Format a model object from get_state or a message for the footer.
+local function model_display_name(model)
+  if not model then
+    return nil
+  end
+  if type(model) == "table" then
+    if model.name and model.name ~= "" then
+      return model.provider and (model.provider .. "/" .. model.name) or model.name
+    end
+    if model.id and model.provider then
+      local id = model.id:match(".*/([^/]+)$") or model.id
+      return model.provider .. "/" .. id
+    end
+  end
+  return tostring(model)
+end
+
+-- Format usage/cost for the footer (↑ input, ↓ output, R cache read, W cache write).
+local function format_usage(usage)
+  if not usage or type(usage) ~= "table" then
+    return nil
+  end
+  local input = usage.input or 0
+  local output = usage.output or 0
+  local cache_read = usage.cacheRead or 0
+  local cache_write = usage.cacheWrite or 0
+  local total = usage.totalTokens or (input + output + cache_read + cache_write)
+  local cost = usage.cost
+  local cost_str = ""
+  if cost and type(cost) == "table" and cost.total then
+    cost_str = string.format(" $%.4f", cost.total)
+  end
+  return string.format("↑%d ↓%d R%d W%d T%d%s", input, output, cache_read, cache_write, total, cost_str)
+end
+
+-- Update the footer with the latest model/usage we know about.
+local function update_footer()
+  buffer.set_footer({
+    model = model_display_name(state.model),
+    usage = format_usage(state.usage),
+  })
+end
+
 local function handle_event(event)
   transcript.append_event(event)
 
   if event.type == "response" and event.command == "get_state" and event.success then
     render_session_state(event.data)
+    if event.data and event.data.model then
+      state.model = event.data.model
+      update_footer()
+    end
     return
   end
 
@@ -431,6 +519,11 @@ local function handle_event(event)
 
   if event.type == "message_update" then
     local update = event.assistantMessageEvent or {}
+    -- Track the active model from the streaming message payload so the footer
+    -- can show it even before the turn finishes.
+    if event.message and event.message.provider then
+      state.model = { provider = event.message.provider, id = event.message.model }
+    end
     if update.type == "text_start" then
       state.assistant_open_in_transcript = true
       transcript.append_markdown("\n\n## pi\n\n")
@@ -455,6 +548,12 @@ local function handle_event(event)
   if event.type == "message_end" then
     if event.message and event.message.role == "assistant" then
       state.assistant_open_in_transcript = false
+      -- Capture the final model and usage/cost for the footer.
+      if event.message.provider then
+        state.model = { provider = event.message.provider, id = event.message.model }
+      end
+      state.usage = event.message.usage
+      update_footer()
       -- Surface model/provider errors (e.g. a 400) instead of going silently
       -- idle with an empty assistant message.
       local err = event.message.errorMessage
@@ -502,6 +601,41 @@ local function handle_event(event)
     return
   end
 
+  if event.type == "compaction_start" then
+    local reason = event.reason or "manual"
+    buffer.append_line("pi compacting context… (" .. reason .. ")")
+    transcript.append_markdown("\npi compacting context… (" .. reason .. ")\n")
+    return
+  end
+
+  if event.type == "compaction_end" then
+    local lines = {}
+    if event.aborted then
+      table.insert(lines, "compaction aborted")
+    elseif event.errorMessage and event.errorMessage ~= "" then
+      table.insert(lines, "compaction failed: " .. event.errorMessage)
+    elseif event.result then
+      local result = event.result
+      if result.summary and result.summary ~= "" then
+        table.insert(lines, result.summary)
+      end
+      if result.tokensBefore and result.estimatedTokensAfter then
+        local saved = result.tokensBefore - result.estimatedTokensAfter
+        table.insert(lines, string.format(
+          "compacted %d → %d tokens (saved ~%d)",
+          result.tokensBefore,
+          result.estimatedTokensAfter,
+          saved
+        ))
+      end
+    end
+    if #lines > 0 then
+      buffer.append_block("pi compaction", table.concat(lines, "\n"))
+      transcript.append_block("pi compaction", table.concat(lines, "\n"))
+    end
+    return
+  end
+
   if event.type == "pim_exit" then
     local line = string.format("pi RPC exited: code=%s signal=%s", tostring(event.code), tostring(event.signal))
     buffer.append_line(line)
@@ -535,6 +669,8 @@ local function apply_keymaps(cfg)
   map("n", "r", function() M.reload() end, "reload pi")
   map("n", "a", function() M.abort() end, "abort")
   map("n", "x", function() M.stop() end, "stop pi")
+  map("n", "k", function() M.compact() end, "compact conversation context")
+  map("n", "K", function() M.set_auto_compaction() end, "toggle auto-compaction")
   map("n", "t", function() M.open_transcript() end, "open transcript")
   map("n", "?", function() M.help() end, "show pim command help")
 end
@@ -714,6 +850,32 @@ function M.follow_up(message)
   send_prompt_with_behavior(message, "followUp")
 end
 
+-- Compact conversation context. With no arguments, pi summarizes the whole
+-- conversation. Pass custom instructions to focus the summary.
+function M.compact(custom_instructions)
+  buffer.open({ focus = false })
+  buffer.append_line("pim compacting context…")
+  transcript.append_markdown("\npim compacting context…\n")
+  local cmd = { type = "compact" }
+  if custom_instructions and custom_instructions ~= "" then
+    cmd.customInstructions = custom_instructions
+  end
+  rpc.send(cmd)
+end
+
+-- Toggle or explicitly set automatic context compaction. `enabled` is a
+-- boolean; when omitted, the current in-memory state is flipped.
+function M.set_auto_compaction(enabled)
+  if enabled == nil then
+    enabled = not state.auto_compaction
+  end
+  state.auto_compaction = enabled
+  rpc.send({ type = "set_auto_compaction", enabled = enabled })
+  local label = enabled and "on" or "off"
+  buffer.append_line("pim auto-compaction: " .. label)
+  transcript.append_markdown("\npim auto-compaction: " .. label .. "\n")
+end
+
 function M.send_selection(opts)
   opts = opts or {}
   local ctx = context.range({ line1 = opts.line1, line2 = opts.line2 })
@@ -891,43 +1053,104 @@ local function pi_config_dir()
   return vim.fn.expand(state.opts.pi_config_dir or "~/.pi/agent")
 end
 
--- Collect available models from pi's models.json as rich entries
--- ({provider, id, key="provider/id", label}).
-local function model_entries(models_path)
-  local read_ok, content = pcall(function()
-    return table.concat(vim.fn.readfile(models_path), "\n")
-  end)
-  if not read_ok then
-    return {}
-  end
-  local decode_ok, decoded = pcall(vim.json.decode, content)
-  if not decode_ok or type(decoded) ~= "table" or type(decoded.providers) ~= "table" then
-    return {}
-  end
+-- The pi executable configured by the user (defaults to PATH's `pi`).
+local function pi_executable()
+  local cmd = state.opts.pi_cmd or { "pi" }
+  return cmd[1] or "pi"
+end
+
+-- Parse the fixed-width table emitted by `pi --list-models`.
+local function parse_list_models_output(lines)
   local out = {}
-  for provider, pdata in pairs(decoded.providers) do
-    if type(pdata) == "table" and type(pdata.models) == "table" then
-      for _, model in ipairs(pdata.models) do
-        if type(model) == "table" and model.id then
-          local key = provider .. "/" .. tostring(model.id)
-          local label = key
-          if model.name then
-            label = label .. "  (" .. tostring(model.name) .. ")"
-          end
-          table.insert(out, {
-            provider = provider,
-            id = tostring(model.id),
-            key = key,
-            label = label,
-          })
-        end
+  local seen = {}
+  for _, line in ipairs(lines or {}) do
+    if line == "" or line:match("^%s*provider") then
+      goto continue
+    end
+    local tokens = vim.split(line, "%s+", { trimempty = true })
+    if #tokens >= 2 then
+      local provider = tokens[1]
+      local id = tokens[2]
+      local key = provider .. "/" .. id
+      if not seen[key] then
+        seen[key] = true
+        table.insert(out, {
+          provider = provider,
+          id = id,
+          key = key,
+          label = key,
+        })
       end
     end
+    ::continue::
   end
   table.sort(out, function(a, b)
     return a.key < b.key
   end)
   return out
+end
+
+-- Fall back to asking `pi` itself for available models when there is no
+-- custom `models.json` (or when it is empty). This covers the common case
+-- where the user has only set the default provider/model in pi's settings.
+local function list_models_from_pi()
+  local cmd = vim.fn.shellescape(pi_executable()) .. " --list-models"
+  local ok, output = pcall(vim.fn.systemlist, cmd)
+  if not ok or type(output) ~= "table" or #output == 0 then
+    return {}
+  end
+  return parse_list_models_output(output)
+end
+
+-- Collect available models from pi's models.json as rich entries
+-- ({provider, id, key="provider/id", label}). models.json entries are merged
+-- with the output of `pi --list-models` so built-in and login-only models are
+-- shown alongside custom ones; models.json names take precedence for duplicates.
+local function model_entries(models_path)
+  local out = {}
+  local seen = {}
+  local read_ok, content = pcall(function()
+    return table.concat(vim.fn.readfile(models_path), "\n")
+  end)
+  if read_ok then
+    local decode_ok, decoded = pcall(vim.json.decode, content)
+    if decode_ok and type(decoded) == "table" and type(decoded.providers) == "table" then
+      for provider, pdata in pairs(decoded.providers) do
+        if type(pdata) == "table" and type(pdata.models) == "table" then
+          for _, model in ipairs(pdata.models) do
+            if type(model) == "table" and model.id then
+              local key = provider .. "/" .. tostring(model.id)
+              local label = key
+              if model.name then
+                label = label .. "  (" .. tostring(model.name) .. ")"
+              end
+              local entry = {
+                provider = provider,
+                id = tostring(model.id),
+                key = key,
+                label = label,
+              }
+              seen[key] = entry
+              table.insert(out, entry)
+            end
+          end
+        end
+      end
+    end
+  end
+  for _, entry in ipairs(list_models_from_pi()) do
+    if not seen[entry.key] then
+      seen[entry.key] = entry
+      table.insert(out, entry)
+    end
+  end
+  if #out > 0 then
+    table.sort(out, function(a, b)
+      return a.key < b.key
+    end)
+    return out
+  end
+  return {}
 end
 
 local function available_models(models_path)

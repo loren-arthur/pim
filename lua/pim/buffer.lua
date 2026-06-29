@@ -12,6 +12,8 @@ local state = {
   status_label = nil,
   status_hl = "Comment",
   spinner_index = 1,
+  footer = { model = "", usage = "" },
+  statusline_string = "",
 }
 
 local function with_buffer_mutation(fn)
@@ -235,20 +237,6 @@ local function apply_window_options(winid)
   vim.wo[winid].signcolumn = "no"
 end
 
-local function set_window_autocmds(bufnr)
-  local group = vim.api.nvim_create_augroup("pim-buffer-window-options", { clear = false })
-  vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
-    group = group,
-    buffer = bufnr,
-    callback = function(args)
-      for _, winid in ipairs(vim.fn.win_findbuf(args.buf)) do
-        apply_window_options(winid)
-      end
-    end,
-    desc = "Keep pim conversation window options readable",
-  })
-end
-
 local function update_status_extmark(text, hl)
   local bufnr = M.ensure()
   if not state.status_namespace then
@@ -262,6 +250,50 @@ local function update_status_extmark(text, hl)
     virt_text = { { text, hl or "Comment" } },
     virt_text_pos = "right_align",
     priority = 200,
+  })
+end
+
+local function build_statusline_string()
+  local left = ""
+  if state.status_timer then
+    left = "%#PimStatusWorking#" .. (state.status_text or "")
+  else
+    left = "%#PimStatusIdle#" .. (state.status_text or "")
+  end
+  local right = ""
+  if state.footer.model and state.footer.model ~= "" then
+    right = right .. "%#PimStatusModel# " .. state.footer.model
+  end
+  if state.footer.usage and state.footer.usage ~= "" then
+    right = right .. "%#PimStatusUsage# " .. state.footer.usage
+  end
+  if right == "" then
+    return left
+  end
+  return left .. "%=" .. right
+end
+
+local function apply_statusline_string()
+  state.statusline_string = build_statusline_string()
+  for _, winid in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_win_get_buf(winid) == state.bufnr then
+      vim.wo[winid].statusline = state.statusline_string
+    end
+  end
+end
+
+local function set_window_autocmds(bufnr)
+  local group = vim.api.nvim_create_augroup("pim-buffer-window-options", { clear = false })
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
+    group = group,
+    buffer = bufnr,
+    callback = function(args)
+      for _, winid in ipairs(vim.fn.win_findbuf(args.buf)) do
+        apply_window_options(winid)
+      end
+      apply_statusline_string()
+    end,
+    desc = "Keep pim conversation window options and footer readable",
   })
 end
 
@@ -282,7 +314,9 @@ local function start_status_spinner(label, hl)
   local function tick()
     local frame = frames[state.spinner_index]
     state.spinner_index = (state.spinner_index % #frames) + 1
-    update_status_extmark(frame .. " " .. state.status_label, state.status_hl)
+    state.status_text = frame .. " " .. state.status_label
+    update_status_extmark(state.status_text, state.status_hl)
+    apply_statusline_string()
   end
   tick()
   state.status_timer = (vim.uv or vim.loop).new_timer()
@@ -300,6 +334,8 @@ local function setup_highlights()
     PimMuted = { link = "Comment", default = true },
     PimStatusWorking = { link = "DiagnosticWarn", default = true },
     PimStatusIdle = { link = "Comment", default = true },
+    PimStatusModel = { link = "Type", default = true },
+    PimStatusUsage = { link = "Comment", default = true },
     PimAnnotation = { link = "Visual", default = true },
     PimAnnotationSign = { link = "DiagnosticInfo", default = true },
     PimAnnotationText = { link = "Comment", default = true },
@@ -319,6 +355,16 @@ end
 function M.ensure()
   if state.bufnr and vim.api.nvim_buf_is_valid(state.bufnr) then
     return state.bufnr
+  end
+
+  -- Reuse an existing pim://conversation buffer if one is still around after
+  -- a module reload or window close. This avoids E95 when an async event
+  -- callback fires after a test/operation deleted the buffer handle.
+  for _, b in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(b) and vim.api.nvim_buf_get_name(b) == "pim://conversation" then
+      state.bufnr = b
+      return state.bufnr
+    end
   end
 
   state.bufnr = vim.api.nvim_create_buf(false, true)
@@ -348,6 +394,7 @@ function M.open(opts)
       vim.api.nvim_win_set_buf(state.winid, bufnr)
     end
     apply_window_options(state.winid)
+    apply_statusline_string()
     if focus then
       vim.api.nvim_set_current_win(state.winid)
     end
@@ -360,6 +407,7 @@ function M.open(opts)
   vim.api.nvim_win_set_buf(state.winid, bufnr)
   vim.api.nvim_win_set_width(state.winid, width)
   apply_window_options(state.winid)
+  apply_statusline_string()
 
   if not focus and vim.api.nvim_win_is_valid(previous_win) then
     vim.api.nvim_set_current_win(previous_win)
@@ -369,6 +417,7 @@ function M.open(opts)
 end
 
 function M.close()
+  stop_status_timer()
   if state.winid and vim.api.nvim_win_is_valid(state.winid) then
     vim.api.nvim_win_close(state.winid, true)
   end
@@ -397,6 +446,7 @@ function M.set_lines(lines)
   if state.status_label and state.status_label ~= "" then
     update_status_extmark(state.status_label, state.status_hl)
   end
+  apply_statusline_string()
   scroll_to_bottom()
 end
 
@@ -463,7 +513,16 @@ function M.set_status(label, hl)
   stop_status_timer()
   state.status_label = label
   state.status_hl = hl or "Comment"
+  state.status_text = label
   update_status_extmark(label, state.status_hl)
+  apply_statusline_string()
+end
+
+function M.set_footer(opts)
+  opts = opts or {}
+  state.footer.model = opts.model or state.footer.model or ""
+  state.footer.usage = opts.usage or state.footer.usage or ""
+  apply_statusline_string()
 end
 
 function M.start_working(label)

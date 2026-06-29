@@ -62,6 +62,13 @@ M.catalog = {
     },
   },
   {
+    title = "Compaction",
+    items = {
+      { cmd = ":PimCompact [instructions]", map = { suffix = "k" }, desc = "Compact context; optional instructions focus the summary" },
+      { cmd = ":PimAutoCompact [on|off|toggle]", map = { suffix = "K" }, desc = "Toggle or set automatic context compaction" },
+    },
+  },
+  {
     title = "Highlights, transcript & diagnostics",
     items = {
       { cmd = ":PimClearHighlights", desc = "Clear pim-created Neovim highlights" },
